@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Crossover Quake</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=JetBrains+Mono:wght@400;600&family=Orbitron:wght@600;800;900&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0c0d0a;--panel:rgba(18,20,15,.94);--line:#2d3226;--line2:#3c4332;--fg:#dcdccc;--dim:#8d927f;--acc:#f2a33a;--acc2:#8fce6a;--err:#ff7a5c}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;height:100%;background:#000;overflow:hidden;color:var(--fg);font:13px/1.5 'JetBrains Mono',ui-monospace,monospace;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+#c{position:fixed;inset:0;width:100%;height:100%;display:block;cursor:crosshair}
+#water{position:fixed;inset:0;pointer-events:none;display:none;mix-blend-mode:multiply}
+#hurt{position:fixed;inset:0;pointer-events:none;opacity:0;background:radial-gradient(ellipse at 50% 50%,rgba(120,0,0,.15) 30%,rgba(170,10,0,.85))}
+#vitals{position:absolute;left:16px;bottom:12px;display:flex;gap:18px;align-items:baseline;font:700 30px 'Chakra Petch',sans-serif;text-shadow:0 2px 5px #000}
+#vitals small{font:600 10px 'JetBrains Mono',monospace;color:var(--dim);letter-spacing:.2em;margin-right:6px}
+#hp.low{color:#ff5a3c;animation:blink .6s infinite alternate}@keyframes blink{to{opacity:.45}}
+#arw{color:#e9c46a}
+#kills{position:absolute;right:16px;top:12px;font:600 12px 'JetBrains Mono',monospace;color:var(--dim);letter-spacing:.12em;text-shadow:0 1px 3px #000}
+#squad{position:absolute;left:14px;top:118px;font:600 11px/1.45 'Chakra Petch',monospace;color:#bfe0ff;white-space:pre;text-shadow:0 1px 3px #000;background:rgba(5,12,24,.38);padding:6px 9px;border-left:2px solid #5ab0ff;pointer-events:none;max-width:300px}
+#powfx{position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity .4s;mix-blend-mode:screen}
+#powfx[data-c=quad]{opacity:1;background:radial-gradient(ellipse at center,transparent 52%,rgba(60,110,255,.38) 100%)}
+#powfx[data-c=inv]{opacity:1;background:radial-gradient(ellipse at center,transparent 52%,rgba(255,200,60,.38) 100%)}
+#powfx[data-e="1"]{animation:powfl .35s steps(2) infinite}
+#powfx.pop{animation:powpop .7s ease-out}
+#powfx[data-k=quad].pop{background:rgba(70,120,255,.55)}#powfx[data-k=inv].pop{background:rgba(255,205,70,.55)}
+@keyframes powpop{from{opacity:1}to{opacity:0}}@keyframes powfl{50%{opacity:.25}}
+#pw{position:absolute;right:16px;top:32px;font:700 13px 'Chakra Petch',sans-serif;color:#7fa8ff;letter-spacing:.1em;text-shadow:0 1px 3px #000}
+#dead{position:absolute;left:50%;top:40%;transform:translate(-50%,-50%);text-align:center;font:700 34px 'Chakra Petch',sans-serif;color:#ff6a4a;text-shadow:0 2px 8px #000}
+#dead small{display:block;font:500 13px 'JetBrains Mono',monospace;color:var(--fg);margin-top:8px}
+#deathmenu{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:radial-gradient(ellipse at 50% 45%,rgba(60,0,0,.55),rgba(0,0,0,.85))}
+#deathmenu[hidden]{display:none}
+#deathmenu h2{font:700 38px 'Chakra Petch',sans-serif;letter-spacing:.2em;color:#ff6a4a;margin:0 0 10px;text-shadow:0 2px 10px #000}
+#deathmenu button{min-width:min(340px,86vw);padding:12px 18px;font:600 14px 'Chakra Petch',sans-serif;letter-spacing:.12em;text-transform:uppercase;cursor:pointer}
+.savelist{display:flex;flex-direction:column;gap:6px;min-width:min(340px,86vw);max-height:36vh;overflow:auto}
+.savelist button{display:flex;justify-content:space-between;gap:14px;text-transform:none!important;letter-spacing:0!important;font:500 12px 'JetBrains Mono',monospace!important;text-align:left}
+.savelist .none{color:var(--dim);font:500 12px 'JetBrains Mono',monospace;text-align:center;padding:6px}
+#dead[hidden],#vitals[hidden],#arw[hidden]{display:none}
+body.touch #vitals{left:auto;right:16px;bottom:auto;top:64px;font-size:22px}
+#flash{position:fixed;inset:0;pointer-events:none;opacity:0;background:radial-gradient(circle at 50% 50%,rgba(255,220,150,.9),rgba(255,140,40,.5))}
+#wpn{position:absolute;right:16px;bottom:14px;font:700 16px 'Chakra Petch',sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--acc);text-shadow:0 2px 4px #000}
+#wbar{position:absolute;left:50%;bottom:26%;transform:translateX(-50%);display:flex;gap:4px;opacity:0;transition:opacity .3s;flex-wrap:wrap;justify-content:center;max-width:96vw}
+#wbar span{font:600 10px 'JetBrains Mono',monospace;color:var(--dim);background:rgba(10,12,8,.75);border:1px solid var(--line);padding:3px 6px;border-radius:2px;display:flex;gap:5px}
+#wbar span b{font-weight:400;color:var(--fg)}#wbar span.on{border-color:var(--acc);color:var(--acc)}#wbar span.on b{color:#fff}
+#wbar span.no{opacity:.32}#wbar span.no b{text-decoration:line-through}
+#hud{position:fixed;inset:0;pointer-events:none}
+#xhair{position:absolute;left:50%;top:50%;width:16px;height:16px;transform:translate(-50%,-50%)}
+#xhair:before,#xhair:after{content:'';position:absolute;background:#fff;opacity:.9;box-shadow:0 0 0 1px rgba(0,0,0,.5)}
+#xhair:before{left:7px;top:2px;width:2px;height:12px}#xhair:after{top:7px;left:2px;height:2px;width:12px}
+#speedo{position:absolute;left:50%;bottom:14%;transform:translateX(-50%);text-align:center;text-shadow:0 2px 6px #000}
+#spd{font:700 34px/1 'Chakra Petch',sans-serif;letter-spacing:.02em}
+#speedo small{display:block;font-size:10px;color:var(--dim);letter-spacing:.25em;margin-top:4px}
+#info{position:absolute;left:14px;top:12px;font-size:11px;color:var(--dim);white-space:pre;text-shadow:0 1px 2px #000}
+#toast{position:absolute;left:50%;top:20%;transform:translateX(-50%);font:600 15px 'Chakra Petch',sans-serif;color:var(--acc);opacity:0;transition:opacity .35s;text-shadow:0 1px 4px #000;text-align:center;max-width:90vw}
+#menu{position:fixed;inset:0;overflow:auto;display:flex;justify-content:center;align-items:flex-start;padding:max(4vh,16px) 12px 24px;background:radial-gradient(ellipse at 50% 0%,rgba(80,52,20,.55),rgba(0,0,0,.82) 65%);touch-action:pan-y;-webkit-user-select:text;user-select:text}
+#menu[hidden],#hud[hidden],#touch[hidden]{display:none}
+.panel{width:min(760px,100%);background:var(--panel);border:1px solid var(--line);border-radius:4px;box-shadow:0 20px 80px rgba(0,0,0,.6);overflow:hidden}
+header{padding:22px 24px 16px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,rgba(242,163,58,.08),transparent)}
+h1{margin:0;font:700 clamp(30px,6vw,44px)/1 'Chakra Petch',sans-serif;letter-spacing:.04em}
+h1 span{color:var(--acc)}
+header p{margin:8px 0 0;color:var(--dim)}
+code{color:var(--acc2)}
+.sec{padding:16px 24px;border-bottom:1px solid var(--line)}
+.row{display:flex;flex-wrap:wrap;gap:10px}
+button,.btn{font:600 14px 'Chakra Petch',sans-serif;letter-spacing:.06em;text-transform:uppercase;color:var(--fg);background:#22261c;border:1px solid var(--line2);border-radius:3px;padding:11px 16px;cursor:pointer;display:inline-flex;align-items:center;gap:8px}
+button:hover,.btn:hover{border-color:var(--acc);color:#fff}
+button.primary{background:var(--acc);color:#1a1205;border-color:var(--acc)}
+button.primary:hover{background:#ffb853;color:#000}
+#status{margin-top:12px;color:var(--dim);font-size:12px;min-height:1.5em}
+#status.err{color:var(--err)}
+body.drag #menu{outline:3px dashed var(--acc);outline-offset:-10px}
+#mapFilter{width:100%;background:#0e100c;border:1px solid var(--line2);color:var(--fg);padding:9px 11px;font:inherit;border-radius:3px;margin-bottom:10px}
+#maps{max-height:300px;overflow:auto;padding-right:4px}
+.mhead{font:600 11px 'Chakra Petch',sans-serif;letter-spacing:.16em;text-transform:uppercase;color:var(--acc);margin:10px 0 6px}
+.mhead:first-child{margin-top:0}
+.mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:6px}
+button.map{font:500 12px 'JetBrains Mono',monospace;text-transform:none;letter-spacing:0;padding:7px 10px;flex-direction:column;align-items:flex-start;gap:1px;text-align:left}
+button.map b{font-weight:600}button.map small{color:var(--dim);font-size:10px;line-height:1.3;min-height:1.3em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+button.map:disabled{opacity:.4;cursor:default}
+.charbody{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start}
+.pv{display:flex;flex-direction:column;align-items:center;gap:4px}
+#preview{width:200px;height:250px;border:1px solid var(--line);border-radius:3px;background:radial-gradient(ellipse at 50% 80%,rgba(242,163,58,.18),rgba(0,0,0,.35));cursor:pointer;touch-action:manipulation}
+#animName{font-size:10px;color:var(--dim)}
+.charside{flex:1;min-width:220px;display:flex;flex-direction:column;gap:10px}
+.charside select{width:100%}
+#skins{display:grid;grid-template-columns:repeat(auto-fill,minmax(74px,1fr));gap:6px;max-height:220px;overflow:auto}
+button.skin{flex-direction:column;padding:6px 4px;gap:3px;font:500 10px 'JetBrains Mono',monospace;text-transform:none;letter-spacing:0}
+button.skin canvas{width:40px;height:40px;image-rendering:pixelated}
+button.skin.on{border-color:var(--acc);background:#3a2c14}
+.hint{color:var(--dim);font-size:12px;margin:0 0 10px}
+.setrow{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px}.setrow label{display:flex;flex-direction:column;gap:4px;color:var(--dim);font-size:12px;flex:1;min-width:150px}
+details{border-bottom:1px solid var(--line)}
+details:last-child{border-bottom:0}
+summary{padding:13px 24px;cursor:pointer;font:600 13px 'Chakra Petch',sans-serif;letter-spacing:.12em;text-transform:uppercase;color:var(--dim)}
+summary:hover{color:var(--fg)}
+.body{padding:0 24px 18px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px 24px}
+.grid label{display:flex;flex-direction:column;gap:4px;color:var(--dim);font-size:12px}
+.grid label b{color:var(--fg);font-weight:600}
+.chk{flex-direction:row!important;align-items:center;gap:8px!important}
+input[type=range]{width:100%;accent-color:var(--acc)}
+input[type=checkbox]{accent-color:var(--acc);width:16px;height:16px}
+select{background:#0e100c;color:var(--fg);border:1px solid var(--line2);padding:6px;font:inherit;border-radius:3px}
+table{border-collapse:collapse;width:100%;font-size:12px}
+td{padding:4px 0;vertical-align:top;border-bottom:1px solid #20241a}
+td:first-child{color:var(--acc);white-space:nowrap;padding-right:18px}
+.notes p{color:var(--dim);margin:8px 0;font-size:12px}
+.notes b{color:var(--fg)}
+kbd{font:inherit;color:var(--fg)}
+#touch{position:fixed;inset:0}
+#stick{position:absolute;left:18%;top:70%;width:110px;height:110px;margin:-55px 0 0 -55px;border:2px solid rgba(255,255,255,.35);border-radius:50%;opacity:.35;pointer-events:none}
+#knob{position:absolute;left:50%;top:50%;width:46px;height:46px;margin:-23px;border-radius:50%;background:rgba(255,255,255,.4)}
+#touch button{position:absolute;border-radius:50%;width:74px;height:74px;justify-content:center;padding:0;background:rgba(20,22,16,.45);border:2px solid rgba(255,255,255,.3);color:#fff;font-size:12px}
+#touch button.on{background:rgba(242,163,58,.6)}
+#tJump{right:24px;bottom:34px}#tFire{right:112px;bottom:92px;width:84px!important;height:84px!important}#tDuck{right:28px;bottom:126px;width:60px!important;height:60px!important}
+#tMenu{left:12px;top:12px;width:42px!important;height:42px!important;border-radius:4px!important}
+#tWpn{right:206px;bottom:30px;width:56px!important;height:56px!important;font-size:11px!important}
+#t3p{right:12px;top:12px;width:42px!important;height:42px!important;border-radius:4px!important;font-size:11px!important}
+body.touch #info{left:64px}
+
+/* ================= title screen: futuristic ================= */
+#menu{--acc:#38e8ff;--acc2:#b98cff;--hot:#ff3ea5;--line:rgba(80,210,255,.16);--line2:rgba(80,210,255,.34);--fg:#e2f6ff;--dim:#7d98ad;--panel:rgba(5,11,19,.74);
+  background:radial-gradient(ellipse 80% 60% at 50% 0%,rgba(40,120,190,.32),transparent 70%),radial-gradient(ellipse at 50% 110%,rgba(185,90,255,.25),transparent 60%),linear-gradient(180deg,rgba(2,6,12,.55),rgba(2,4,9,.86));isolation:isolate}
+#menu:before{content:'';position:fixed;left:-50%;right:-50%;bottom:-6vh;height:62vh;z-index:-1;pointer-events:none;
+  background-image:linear-gradient(rgba(56,232,255,.5) 1px,transparent 1px),linear-gradient(90deg,rgba(56,232,255,.5) 1px,transparent 1px);background-size:64px 64px;
+  transform:perspective(420px) rotateX(62deg);transform-origin:50% 100%;animation:gridrun 2.6s linear infinite;
+  -webkit-mask-image:linear-gradient(transparent,#000 55%);mask-image:linear-gradient(transparent,#000 55%);opacity:.55}
+@keyframes gridrun{to{background-position:0 64px,0 0}}
+#menu:after{content:'';position:fixed;inset:0;z-index:-1;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(255,255,255,.035) 0 1px,transparent 1px 3px),radial-gradient(ellipse at center,transparent 55%,rgba(0,0,0,.65));animation:flick 6s steps(1) infinite}
+@keyframes flick{0%,100%{opacity:1}47%{opacity:.85}48%{opacity:1}83%{opacity:.92}}
+#menu .panel{position:relative;background:var(--panel);border:1px solid var(--line2);border-radius:0;backdrop-filter:blur(10px) saturate(1.3);-webkit-backdrop-filter:blur(10px) saturate(1.3);
+  box-shadow:0 0 0 1px rgba(0,0,0,.6),0 0 40px rgba(56,232,255,.12),0 30px 90px rgba(0,0,0,.7);
+  clip-path:polygon(0 0,calc(100% - 26px) 0,100% 26px,100% 100%,26px 100%,0 calc(100% - 26px));animation:panelin .7s cubic-bezier(.2,.9,.2,1) both}
+@keyframes panelin{from{opacity:0;transform:translateY(18px) scale(.985);filter:blur(4px)}to{opacity:1;transform:none;filter:none}}
+#menu .panel:before{content:'';position:absolute;inset:0;pointer-events:none;z-index:2;
+  background:linear-gradient(var(--acc),var(--acc)) 0 0/22px 2px,linear-gradient(var(--acc),var(--acc)) 0 0/2px 22px,
+  linear-gradient(var(--acc),var(--acc)) 100% 100%/22px 2px,linear-gradient(var(--acc),var(--acc)) 100% 100%/2px 22px,
+  linear-gradient(90deg,transparent,rgba(56,232,255,.9),transparent) 50% 0/60% 1px;background-repeat:no-repeat}
+#menu header{position:relative;overflow:hidden;padding:20px 26px 18px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,rgba(56,232,255,.09),transparent 80%)}
+#menu header:after{content:'';position:absolute;left:0;right:0;top:0;height:40%;background:linear-gradient(180deg,transparent,rgba(56,232,255,.10),transparent);animation:sweep 4.5s ease-in-out infinite;pointer-events:none}
+@keyframes sweep{0%{transform:translateY(-120%)}60%,100%{transform:translateY(320%)}}
+.hudtop{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font:600 10px 'JetBrains Mono',monospace;letter-spacing:.22em;color:var(--dim);margin-bottom:12px;text-transform:uppercase}
+.hudtop .live{color:var(--acc)}.hudtop .live:before{content:'';display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--acc);margin-right:7px;box-shadow:0 0 8px var(--acc);animation:pulse 1.4s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.25}}
+#menu h1{position:relative;font:900 clamp(22px,6vw,56px)/1 'Orbitron','Chakra Petch',sans-serif;letter-spacing:.09em;color:#f4fbff;text-shadow:0 0 18px rgba(56,232,255,.55),0 0 2px #fff}
+#menu h1 span{color:transparent;background:linear-gradient(90deg,var(--acc),var(--acc2) 60%,var(--hot));-webkit-background-clip:text;background-clip:text;text-shadow:none;filter:drop-shadow(0 0 12px rgba(150,120,255,.55))}
+#menu h1:before,#menu h1:after{content:attr(data-text);position:absolute;left:0;top:0;width:100%;pointer-events:none;opacity:.8}
+#menu h1:before{color:var(--hot);transform:translate(2px,0);clip-path:inset(0 0 100% 0);animation:gl1 3.8s steps(1) infinite;text-shadow:none}
+#menu h1:after{color:var(--acc);transform:translate(-2px,0);clip-path:inset(0 0 100% 0);animation:gl2 3.8s steps(1) infinite;text-shadow:none}
+@keyframes gl1{0%,88%,100%{clip-path:inset(0 0 100% 0)}89%{clip-path:inset(10% 0 62% 0);transform:translate(4px,-1px)}91%{clip-path:inset(55% 0 20% 0);transform:translate(-3px,1px)}93%{clip-path:inset(30% 0 48% 0);transform:translate(5px,0)}}
+@keyframes gl2{0%,89%,100%{clip-path:inset(0 0 100% 0)}90%{clip-path:inset(68% 0 8% 0);transform:translate(-5px,1px)}92%{clip-path:inset(22% 0 60% 0);transform:translate(3px,-1px)}94%{clip-path:inset(45% 0 35% 0);transform:translate(-2px,0)}}
+#menu header p{margin:12px 0 0;color:var(--dim);letter-spacing:.02em}
+.meter{display:flex;gap:3px;margin-top:14px}.meter i{flex:1;height:3px;background:rgba(56,232,255,.14);position:relative;overflow:hidden}
+.meter i:after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,var(--acc),transparent);transform:translateX(-100%);animation:bar 2.4s ease-in-out infinite}
+.meter i:nth-child(2):after{animation-delay:.15s}.meter i:nth-child(3):after{animation-delay:.3s}.meter i:nth-child(4):after{animation-delay:.45s}.meter i:nth-child(5):after{animation-delay:.6s}
+@keyframes bar{60%,100%{transform:translateX(100%)}}
+#menu .sec{border-bottom:1px solid var(--line)}
+#menu button,#menu .btn{background:linear-gradient(180deg,rgba(30,60,80,.55),rgba(10,24,36,.7));border:0;border-radius:0;box-shadow:inset 0 0 0 1px var(--line2);color:var(--fg);
+  clip-path:polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px);transition:background .15s,box-shadow .15s,transform .1s,color .15s}
+#menu button:hover,#menu .btn:hover{box-shadow:inset 0 0 0 1px var(--acc),inset 0 0 18px rgba(56,232,255,.25);color:#fff}
+#menu button:active,#menu .btn:active{transform:translateY(1px)}
+#menu button.primary{background:linear-gradient(100deg,#2fe3ff,#7d7bff 55%,#c86bff);color:#04111c;box-shadow:none;font-weight:700}
+#menu button.primary:hover{filter:brightness(1.15) saturate(1.2);color:#000}
+#menu button.map{background:rgba(8,20,30,.65)}
+#menu button.skin.on{background:rgba(56,232,255,.18);box-shadow:inset 0 0 0 1px var(--acc)}
+#menu summary{color:var(--dim);list-style:none;display:flex;align-items:center;gap:10px}
+#menu summary::-webkit-details-marker{display:none}
+#menu summary:before{content:'';width:7px;height:7px;border-right:2px solid var(--acc);border-bottom:2px solid var(--acc);transform:rotate(-45deg);transition:transform .2s}
+#menu details[open]>summary:before{transform:rotate(45deg)}
+#menu details[open]>summary{color:var(--acc)}
+#menu select,#menu #mapFilter{background:rgba(0,16,26,.7);border:1px solid var(--line2);color:var(--fg)}
+#menu #preview{background:radial-gradient(ellipse at 50% 85%,rgba(56,232,255,.22),rgba(0,0,0,.4));border-color:var(--line2)}
+#menu .mhead{color:var(--acc)}#menu td{border-bottom-color:rgba(80,210,255,.1)}#menu td:first-child{color:var(--acc)}
+#menu input[type=range],#menu input[type=checkbox]{accent-color:var(--acc)}
+#menu code{color:var(--acc2)}
+.foot{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:10px 26px;font:600 9px 'JetBrains Mono',monospace;letter-spacing:.24em;color:rgba(125,152,173,.7);text-transform:uppercase}
+@media (prefers-reduced-motion:reduce){#menu:before,#menu:after,#menu h1:before,#menu h1:after,#menu header:after,.meter i:after,.hudtop .live:before{animation:none}}
+/* ================= console ================= */
+#console{position:fixed;left:0;right:0;top:0;height:min(58vh,520px);z-index:50;display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(3,10,18,.94),rgba(4,14,24,.9));
+  border-bottom:1px solid #38e8ff;box-shadow:0 0 30px rgba(56,232,255,.25),0 20px 60px rgba(0,0,0,.6);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);animation:conin .18s ease-out;-webkit-user-select:text;user-select:text;touch-action:pan-y}
+#console[hidden]{display:none}
+@keyframes conin{from{transform:translateY(-100%)}to{transform:none}}
+#conbar{display:flex;align-items:center;justify-content:space-between;padding:6px 10px 6px 14px;border-bottom:1px solid rgba(56,232,255,.22);font:700 11px 'Orbitron','Chakra Petch',sans-serif;letter-spacing:.3em;color:#38e8ff}
+#conbar span small{font:600 9px 'JetBrains Mono',monospace;letter-spacing:.2em;color:#7d98ad;margin-left:10px}
+#conClose{font:700 11px 'Chakra Petch',sans-serif;letter-spacing:.18em;padding:7px 12px;background:rgba(255,62,165,.14);border:1px solid rgba(255,62,165,.6);color:#ff9ccf;border-radius:0;cursor:pointer}
+#conClose:hover{background:rgba(255,62,165,.3);color:#fff}
+#conLog{flex:1;overflow:auto;padding:8px 14px;font:12px/1.55 'JetBrains Mono',monospace;color:#cfe9f5;white-space:pre-wrap;word-break:break-word}
+#conLog .err{color:#ff7a9a}#conLog .ok{color:#7dffb2}#conLog .cmd{color:#38e8ff}#conLog .dim{color:#6f8a9e}#conLog .hd{color:#b98cff;font-weight:600}
+#conChips{display:flex;gap:6px;overflow-x:auto;padding:6px 10px 0;scrollbar-width:none}
+#conChips button{flex:none;font:600 10px 'JetBrains Mono',monospace;letter-spacing:0;text-transform:none;padding:5px 9px;background:rgba(56,232,255,.08);border:1px solid rgba(56,232,255,.3);color:#9fe9ff;border-radius:0}
+#conRow{display:flex;align-items:center;gap:8px;padding:8px 12px 10px;font:13px 'JetBrains Mono',monospace;color:#38e8ff}
+#conIn{flex:1;background:transparent;border:0;border-bottom:1px solid rgba(56,232,255,.35);color:#eaf8ff;font:13px 'JetBrains Mono',monospace;padding:6px 2px;outline:none;caret-color:#38e8ff}
+#tCon{left:60px;top:12px;width:42px!important;height:42px!important;border-radius:4px!important;font:700 12px 'JetBrains Mono',monospace!important}
+body.touch #info{left:112px}
+#kills{white-space:pre;text-align:right}
+
+#menu .crumb{display:flex;align-items:center;gap:12px;padding:12px 22px;border-bottom:1px solid var(--line);font:600 11px 'Orbitron',sans-serif;letter-spacing:.3em;color:var(--dim)}
+#menu .crumb button{padding:6px 12px;font-size:12px}
+#menu .crumb span{color:var(--acc)}
+#menu .nav{display:flex;flex-direction:column;gap:10px}
+#menu button.big{display:flex;align-items:center;gap:16px;text-align:left;font:700 20px 'Orbitron','Chakra Petch',sans-serif;letter-spacing:.14em;padding:18px 22px;clip-path:polygon(0 0,calc(100% - 16px) 0,100% 16px,100% 100%,16px 100%,0 calc(100% - 16px))}
+#menu button.big i{font:600 11px 'Orbitron',sans-serif;font-style:normal;color:var(--acc);letter-spacing:.2em}
+#menu button.big:hover{transform:translateX(6px)}
+#menu .mpform{display:flex;flex-direction:column;gap:12px}
+#menu .mpform label{display:flex;justify-content:space-between;align-items:center;gap:16px;font:600 12px 'Chakra Petch',sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+#menu .mpform select{min-width:55%;max-width:60%}
+#menu .botslots{display:flex;flex-direction:column;gap:6px;padding-left:14px;border-left:2px solid var(--line)}
+#menu .botslots label{font-size:11px!important}
+#menu .botslots:empty{display:none}
+#menu .mpform label.off{opacity:.35;pointer-events:none}
+#menu .simpage{padding:18px 22px}
+#menu .scr > details:first-child summary{border-top:0}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="water"></div><div id="flash"></div><div id="hurt"></div>
+<div id="hud" hidden>
+  <div id="xhair"></div>
+  <div id="speedo"><div id="spd">0</div><small>UPS · <span id="top">top 0</span></small></div>
+  <div id="info"></div>
+  <div id="toast"></div>
+  <div id="wpn"></div><div id="wbar"></div>
+  <div id="vitals" hidden><span><small>HEALTH</small><b id="hp">100</b></span><span id="arw" hidden><small>ARMOR</small><b id="ar">0</b></span></div>
+  <div id="kills"></div><div id="pw"></div><div id="squad" hidden></div><div id="powfx"></div>
+  <div id="dead" hidden>YOU DIED<small id="deadSub">click / fire / jump to respawn</small></div>
+</div>
+<div id="deathmenu" hidden>
+  <h2>YOU DIED</h2>
+  <button id="dmAuto" class="primary">↻ Load last autosave</button>
+  <button id="dmSaved">▤ Load saved game</button>
+  <div id="dmList" class="savelist" hidden></div>
+  <button id="dmQuit">⏏ Quit to main menu</button>
+</div>
+<div id="touch" hidden>
+  <div id="stick"><div id="knob"></div></div>
+  <button id="tJump">JUMP</button><button id="tFire">FIRE</button><button id="tDuck">DUCK</button><button id="tMenu">☰</button><button id="t3p">3P</button><button id="tWpn">WPN</button><button id="tCon">›_</button>
+</div>
+<div id="menu">
+  <div class="panel">
+    <header>
+      <div class="hudtop"><span>SYS://CROSSOVER.QUAKE</span><span class="live">Link online</span><span>PMOVE · 125 HZ</span></div>
+      <h1 data-text="CROSSOVER QUAKE">CROSSOVER <span>QUAKE</span></h1>
+      <p>Quake II <code>pmove</code> physics, ported line-for-line. Bring your own maps.</p>
+      <div class="meter"><i></i><i></i><i></i><i></i><i></i></div>
+    </header>
+    <div class="sec dock">
+      <div class="row">
+        <label class="btn" for="files">⇪ Load .pak / .pk3 / .bsp</label>
+        <label class="btn" for="folder" id="folderBtn">⇪ Add baseq2</label>
+        <input type="file" id="files" multiple hidden>
+        <input type="file" id="folder" webkitdirectory multiple hidden>
+      </div>
+      <div id="status">Drop Quake II's <b>pak0.pak</b> (<code>baseq2</code>) and/or Quake III's <b>pak0.pk3</b> (<code>baseq3</code>) anywhere on this page, plus any custom map zips or pk3s. Files are read locally and never leave your browser.</div>
+    </div>
+    <div class="crumb"><button class="back" id="backBtn" hidden>‹ Back</button><span id="crumb">MAIN MENU</span></div>
+
+    <div class="sec scr" data-scr="main">
+      <div class="nav">
+        <button id="resume" class="primary" hidden>▶ Resume</button>
+        <button class="big" data-go="play"><i>01</i>Play</button>
+        <button class="big" data-go="options"><i>02</i>Options</button>
+        <button class="big" data-go="sim"><i>03</i>What's Simulated</button>
+        <button id="saveBtn" hidden>▣ Save game</button>
+        <button id="loadBtn">▤ Load game</button>
+        <div id="mainSaves" class="savelist" hidden></div>
+        <button id="conBtn">›_ Console</button>
+      </div>
+    </div>
+
+    <div class="sec scr" data-scr="play" hidden>
+      <div class="nav">
+        <button class="big" data-go="sp"><i>01</i>Singleplayer</button>
+        <button class="big" data-go="mp"><i>02</i>Multiplayer</button>
+      </div>
+    </div>
+
+    <div class="scr" data-scr="sp" hidden>
+      <div class="sec">
+        <div class="row">
+          <button id="campaign" class="primary" hidden>▶ Start campaign</button>
+          <button id="playDemo" class="primary">▶ Play test map</button>
+        </div>
+      </div>
+    <div class="sec" id="mapsBox" hidden>
+      <input id="mapFilter" placeholder="filter maps…" autocomplete="off">
+      <div id="maps"></div>
+    </div>
+    </div>
+
+    <div class="sec scr" data-scr="mp" hidden>
+      <div class="mpform">
+        <label>Add bots <select id="botCount"><option value="0">None</option><option value="1">1 bot</option><option value="2">2 bots</option><option value="3">3 bots</option><option value="4">4 bots</option><option value="5">5 bots</option><option value="6">6 bots</option><option value="7">7 bots</option></select></label>
+        <div id="botSlots" class="botslots"></div>
+        <label>Bot skill <select id="botSkill"><option value="0">Easy</option><option value="1">Medium</option><option value="2">Hard</option></select></label>
+        <label>Gamemode <select id="matchMode"><option value="dm">Deathmatch</option><option value="coop">Co-op</option></select></label>
+        <label id="fragRow">Frag limit <select id="mpFrag"><option value="0">None</option><option value="5">5</option><option value="10">10</option><option value="15">15</option><option value="20">20</option><option value="25">25</option><option value="50">50</option></select></label>
+        <label>Time limit <select id="mpTime"><option value="0">None</option><option value="5">5 minutes</option><option value="10">10 minutes</option><option value="15">15 minutes</option><option value="20">20 minutes</option><option value="30">30 minutes</option></select></label>
+        <label><span id="mapLbl">Map</span> <select id="mpMap"><option value="test">Test map</option></select></label>
+        <button id="botBtn" class="primary">⚔ Start match</button>
+      </div>
+    </div>
+
+    <div class="scr" data-scr="options" hidden>
+    <details id="charBox">
+      <summary>Character</summary>
+      <div class="body">
+        <div class="setrow"><label>Player models <select id="pset"><option value="builtin">Built-in</option><option value="q2">Quake II (pak0.pak)</option><option value="q3">Quake III (pak0.pk3)</option></select></label>
+        <label title="Quake III mode switches weapons, movement physics, sounds and items to Quake III">Game mode <select id="wset"><option value="builtin">Built-in</option><option value="q2">Quake II</option><option value="q3">Quake III (weapons, physics, sounds, items)</option></select></label></div>
+        <p class="hint" id="charHint">Load <b>pak0.pak</b> to choose from the Quake II player models and skins. You'll see your character in third person (<b>H</b>), and the real view weapon and rockets replace the placeholders.</p>
+        <div class="charbody" id="charPick" hidden>
+          <div class="pv"><canvas id="preview"></canvas><span id="animName"></span></div>
+          <div class="charside">
+            <label>Model <select id="modelSel"></select></label>
+            <div id="skins"></div>
+          </div>
+        </div>
+        <label class="chk" style="margin-top:12px;color:var(--dim);font-size:12px;display:flex"><input type="checkbox" id="third"> Third-person camera (H)</label>
+      </div>
+    </details>
+    <details>
+      <summary>Settings</summary>
+      <div class="body grid">
+        <label>Sensitivity <b id="sensV"></b><input type="range" id="sens" min="0.3" max="12" step="0.1"></label>
+        <label>Field of view (4:3 horizontal) <b id="fovV"></b><input type="range" id="fov" min="70" max="130" step="1"></label>
+        <label>Lightmap brightness <b id="brightV"></b><input type="range" id="bright" min="1" max="4" step="0.1"></label>
+        <label>Volume <b id="volV"></b><input type="range" id="vol" min="0" max="1" step="0.05"></label>
+        <label>Music <b id="musicV"></b><input type="range" id="music" min="0" max="1" step="0.05"></label>
+        <label>Skill (which entities spawn, enemy aggression)
+          <select id="skill"><option value="0">Easy</option><option value="1">Medium</option><option value="2">Hard</option></select></label>
+        <label>Player damage
+          <select id="hurt"><option value="monsters">On in maps with monsters</option><option value="always">Always on (rocket jumps cost health)</option><option value="never">God mode</option></select></label>
+        <label>Physics rate (cl_maxfps)
+          <select id="tick"><option value="8">125 Hz — 8 ms (competitive)</option><option value="11">90 Hz — 11 ms (default)</option><option value="16">62 Hz — 16 ms</option><option value="33">30 Hz — 33 ms</option></select></label>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <label class="chk"><input type="checkbox" id="run"> Always run (Shift walks)</label>
+          <label class="chk"><input type="checkbox" id="autohop"> Auto-hop (hold jump)</label>
+          <label class="chk"><input type="checkbox" id="invert"> Invert mouse</label>
+          <label class="chk"><input type="checkbox" id="testEnemies"> Enemies in the test map</label>
+          <label class="chk"><input type="checkbox" id="allWeapons"> Start maps with all weapons</label>
+          <label class="chk"><input type="checkbox" id="infAmmo"> Unlimited ammo</label>
+          <label class="chk"><input type="checkbox" id="ragdoll"> Ragdoll physics on death</label>
+        </div>
+      </div>
+    </details>
+    <details>
+      <summary>Controls</summary>
+      <div class="body"><table>
+        <tr><td>W A S D / arrows</td><td>move</td></tr>
+        <tr><td>Space · wheel · right click</td><td>jump (wheel gives one-tick jumps for bunny hopping)</td></tr>
+        <tr><td>C / Ctrl</td><td>duck</td></tr>
+        <tr><td>Left click / F</td><td>fire (hold for automatic weapons; hold the hand grenade to cook it)</td></tr>
+        <tr><td>1 – 9, 0</td><td>Quake II set: Blaster, Shotgun, Super Shotgun, Machinegun, Chaingun, Grenade Launcher, Rocket Launcher, HyperBlaster, Railgun, BFG10K<br>Quake III set: Gauntlet, Machinegun, Shotgun, Grenade Launcher, Rocket Launcher, Lightning Gun, Railgun, Plasma Gun, BFG10K</td></tr>
+        <tr><td></td><td>On real maps you start with the Blaster (Quake II, Built-in) or the Gauntlet and Machinegun (Quake III), and pick the rest up. They stay with you from level to level. The test map gives you everything, and so does <i>Start maps with all weapons</i> in Settings.</td></tr>
+        <tr><td>0, −, =</td><td>Quake III set, Team Arena: Nailgun, Prox Launcher, Chaingun</td></tr>
+        <tr><td>G · Q · E</td><td>hand grenades · last weapon · next weapon</td></tr>
+        <tr><td>Shift</td><td>walk (or run, if always-run is off)</td></tr>
+        <tr><td>R</td><td>cycle spawn points</td></tr>
+        <tr><td>H</td><td>toggle third-person camera</td></tr>
+        <tr><td>V</td><td>noclip (handy where progress needs a monster kill or a key)</td></tr>
+        <tr><td>T</td><td>reset top speed</td></tr>
+        <tr><td>Esc</td><td>menu</td></tr>
+        <tr><td>Touch</td><td>left thumb moves, right thumb looks, buttons for jump, fire and duck</td></tr>
+      </table></div>
+    </details>
+    <details>
+      <summary>Console</summary>
+      <div class="body"><table>
+        <tr><td>` (backquote) · ›_ button</td><td>open / close the console (the game pauses while it's open)</td></tr>
+        <tr><td>sv_cheats 1</td><td>enable cheats (needed for give, god and noclip)</td></tr>
+        <tr><td>give all</td><td>every weapon in both sets, full health, 200 armor and all keys</td></tr>
+        <tr><td>give &lt;name&gt; [n]</td><td>a weapon, item or powerup by name: <code>give rocket launcher</code>, <code>give quad</code>, <code>give mega health</code>, <code>give health 250</code>, <code>give armor</code></td></tr>
+        <tr><td>fov [n]</td><td>show or set the field of view</td></tr>
+        <tr><td>showviewmodel [0|1]</td><td>hide or show the first-person weapon (no value toggles it)</td></tr>
+        <tr><td>god · noclip · kill</td><td>cheats: invulnerable, fly through walls, die</td></tr>
+        <tr><td>map &lt;name&gt; · maps · disconnect</td><td>load a map, list maps, back to the title screen</td></tr>
+        <tr><td>help · clear</td><td>list commands, clear the log. ↑ ↓ for history, Tab completes.</td></tr>
+      </table></div>
+    </details>
+    </div>
+
+    <div class="scr" data-scr="sim" hidden>
+      <div class="body notes simpage">
+        <p><b>Multiplayer:</b> Play → Multiplayer starts a match against bots. Deathmatch is a free-for-all on any map you have, with frag and time limits, real ammo and health and respawning items; each bot wears its own player model and takes its name from it. Co-op keeps a single-player unit's monsters and gives you bot allies who follow you and fight them.</p>
+        <p><b>Movement:</b> a port of id's <code>pmove.c</code>: ground accel 10, friction 6, stop speed 100, max speed 300, gravity 800, jump +270, air acceleration through <code>PM_Accelerate(…, 1)</code> (Q2's default <code>sv_airaccelerate 0</code>), 18-unit step-ups, the post-landing jump delay (<code>PMF_TIME_LAND</code>), duck, ladders, swimming, slick surfaces, and the 1/8-unit position and velocity snapping that makes jumps frame-rate dependent.</p>
+        <p><b>Collision:</b> a port of <code>CM_BoxTrace</code> against the map's real brushes (player clip, windows, ladders), plus solid <code>func_wall</code>s.</p>
+        <p><b>Maps:</b> Quake II BSP v38 (and the remaster's extended QBSP) with WAL textures, the colormap palette, lightmaps and <code>env/</code> sky boxes. Deathmatch and single-player maps both load.</p>
+        <p><b>Single-player logic:</b> doors (teams, toggles, shoot-to-open), lifts, buttons, trains along <code>path_corner</code>s, <code>func_wall</code>/<code>func_explosive</code>, trigger_once/multiple/relay/counter/always, timers, killtargets, delays, help messages, secrets, jump pads, teleporters, and <code>target_changelevel</code>, so walking into an exit loads the next map at the right spawn point. Monsters and items aren't spawned, and key-locked triggers open without the key. Rotating and secret doors are shown see-through and you can walk through them.</p>
+        <p><b>Characters:</b> MD2 player models with PCX skins and vwep weapon models, animated from Quake II's own frame names (stand, run, attack, jump, crouch).</p>
+        <p><b>Weapons:</b> all eleven, driven by <code>Weapon_Generic</code>'s 10 Hz frame logic, so refire times, chaingun spin-up (1→2→3 shots per frame), HyperBlaster barrel rotation, the BFG's charge delay and grenade cooking (3 s fuse, 400–800 ups throw) match the original. Damage, spread and pellet counts are the deathmatch values. Self-splash knockback is 1600 × dmg / 200 (the original "rocket jump hack"), so rocket, grenade, BFG and barrel jumps all work. Weapon, projectile and debris models and sounds come from your pak0.</p>
+        <p><b>Quake III:</b> <code>.pk3</code> files mount like zips. Quake III maps (BSP v46) load with shader scripts (texture stage, blend mode, alpha test, scrolling, sky boxes and cloud layers), lightmaps, curved patch surfaces (rendered and collidable), liquids, jump pads (<code>AimAtTarget</code>), teleporters that throw you out at 400 ups, doors, lifts and Quake III items. Movement stays Quake II.</p>
+        <p><b>Sets:</b> pick Built-in, Quake II or Quake III player models and weapons independently (Character section). Quake III players are three-part MD3s (legs, torso, head) joined by tags and animated from <code>animation.cfg</code>. Quake III weapons use <code>PM_Weapon</code> refire times, <code>G_RadiusDamage</code> linear splash and 1000 × knockback / 200, with view models, spinning barrels and muzzle flashes from the pk3. The first-person gun hangs off the hand model's <code>tag_weapon</code>, and its shot and switch motion are the hand model's frames, driven by the player's torso animation. <b>Team Arena</b> (missionpack) adds the Nailgun (15 nails, 20 damage each, 555–2355 ups), the Prox Launcher (mines stick where they land, arm after 2 s, trigger within 150 units, and time out after 20 s) and the Chaingun (30 ms refire, 7 damage, wide spread, spinning barrel). Their models and sounds load from the missionpack <code>pak0.pk3</code> when it's mounted.</p>
+        <p><b>Ragdolls:</b> when anything dies, its current animated mesh is bound to a 16-point Verlet skeleton (or a rigid box for flyers and other non-humanoids) and falls, tumbles, floats in water and reacts to bullets and explosions. The model's own death animation plays on top: it's laid onto the body's torso each frame and pulls the limbs toward it, fading out as it ends, while gravity, collisions and hits stay physical (a blast or a burst of fire loosens it). Bodies slow down smoothly before they come to rest, and old ones are frozen in place rather than removed. When you die, the camera rides the head.</p>
+        <p><b>Water:</b> anything that crosses a liquid surface, including you, monsters' shots, rockets, bullets, debris and bodies, makes a splash with droplets, spray, expanding ripples, foam and bubbles. Water surfaces have animated normals, fresnel reflection and highlights. Underwater explosions throw up a plume and rockets leave bubble trails.</p>
+        <p><b>Enemies:</b> every Quake II monster spawns from map entities (skill flags respected) with its MD2 model, skins (including the damaged skin), animations and sounds from your pak0. They see you (field of view and line of sight), hear your gunfire, chase you with step-up and ledge checks, fly or swim, patrol <code>path_corner</code>s, and use their real attacks: blaster, shotgun and machinegun soldiers, gunner grenades, tank and Iron Maiden rockets, the gladiator railgun (dodgeable, aimed where you were), melee for berserkers, mutants, parasites and brains, and BFG-firing bosses. Attack odds follow <code>M_CheckAttack</code>. They flinch, die, fire their death targets (so kill-gated doors work), take splash knockback and gib.</p>
+        <p><b>Player:</b> health, armor (jacket, combat and body absorption), falling damage, pain and death sounds, health, armor, Quad and Invulnerability pickups, and keys. Weapons and ammo are always fully stocked.</p>
+        <p><b>Sound:</b> everything is read from <code>sound/</code> and the <code>players/</code> sexed sounds in your paks. It's positional with Quake II's distance falloff, <code>target_speaker</code> ambience loops in place, entering water muffles the mix, and the map's CD track plays from <code>music/trackNN.ogg</code> if you add the music files.</p>
+        <p><b>Explosions:</b> rockets, grenades, barrels (<code>misc_explobox</code>, with chain reactions), <code>func_explosive</code> and <code>target_explosion</code> spawn layered fireballs, lingering smoke, bouncing sparks, embers, tumbling debris, scorch marks, dynamic light, camera shake and a screen flash. Bullet holes and rail spirals are drawn too.</p>
+      </div>
+    </div>
+<div class="foot"><span>Crossover Quake · Build 2.8</span><span>Your files never leave this browser</span></div>
+  </div>
+</div>
+<div id="console" hidden>
+  <div id="conbar"><span>CONSOLE<small>type help</small></span><button id="conClose">✕ EXIT CONSOLE</button></div>
+  <div id="conLog"></div>
+  <div id="conChips"></div>
+  <div id="conRow">›<input id="conIn" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="send" placeholder="type a command…"></div>
+</div>
+<script>/*CORE*/</script>
+<script>/*GAME*/</script>
+</body>
+</html>
