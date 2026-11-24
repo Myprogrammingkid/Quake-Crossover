@@ -46,9 +46,10 @@ function bleedTransparent(src, w, h) { // copy neighbouring colour under invisib
   }
   return out;
 }
+const TEXSZ = new WeakMap();
 function makeTex(g, src, w, h, opts = {}) {
   if (opts.cutout && src instanceof Uint8Array) src = bleedTransparent(src, w, h);
-  const t = g.createTexture(); g.bindTexture(g.TEXTURE_2D, t);
+  const t = g.createTexture(); g.bindTexture(g.TEXTURE_2D, t); TEXSZ.set(t, src instanceof Uint8Array ? [w, h] : [src.width || w || 1, src.height || h || 1]);
   if (src instanceof Uint8Array) g.texImage2D(g.TEXTURE_2D, 0, g.RGBA, w, h, 0, g.RGBA, g.UNSIGNED_BYTE, src);
   else g.texImage2D(g.TEXTURE_2D, 0, g.RGBA, g.RGBA, g.UNSIGNED_BYTE, src);
   if (opts.lightmap) {
@@ -63,13 +64,13 @@ function makeTex(g, src, w, h, opts = {}) {
   return t;
 }
 const LMODE = () => S.light === 'vertex' ? 1 : S.light === 'pixel' ? 2 : 0;
-const H = '#version 300 es\nprecision highp float;\nprecision highp sampler2DArray;\nprecision highp int;\n';
+const H = '#version 300 es\nprecision highp float;\nprecision highp sampler2DArray;\nprecision highp sampler2DShadow;\nprecision highp int;\n';
 const worldP = gl && prog(gl, H + `in vec3 aPos;in vec2 aUV;in vec2 aLM;in float aL;uniform mat4 uMVP;uniform vec3 uOff;out vec2 vUV;out vec2 vLM;out float vL;out vec3 vW;out vec3 vLC;out vec3 vDV;uniform sampler2D uLMap;uniform int uLMode;uniform vec4 uDL[8];uniform vec3 uDLC[8];uniform int uNDL;vec3 dyn(vec3 w){vec3 s=vec3(0.);for(int i=0;i<8;i++){if(i>=uNDL)break;float d=distance(w,uDL[i].xyz);s+=uDLC[i]*max(0.,1.-d/uDL[i].w);}return s;}
 invariant gl_Position;
 void main(){vW=aPos+uOff;gl_Position=uMVP*vec4(vW,1.);vUV=aUV;vLM=aLM;vL=aL;vLC=vec3(0.);vDV=vec3(0.);if(uLMode==1){vLC=textureLod(uLMap,aLM,0.).rgb;vDV=dyn(vW);}}`,
-  H + `in vec2 vUV;in vec2 vLM;in float vL;in vec3 vW;in vec3 vLC;in vec3 vDV;uniform int uLMode;uniform vec3 uEye;uniform vec4 uDL[8];uniform vec3 uDLC[8];uniform int uNDL;vec3 dyn(vec3 w){vec3 s=vec3(0.);for(int i=0;i<8;i++){if(i>=uNDL)break;float d=distance(w,uDL[i].xyz);s+=uDLC[i]*max(0.,1.-d/uDL[i].w);}return s;}uniform int uDL0;vec3 dynM(vec3 w){if(uLMode==1)return vDV;if(uLMode!=2)return dyn(w);vec3 N=normalize(cross(dFdx(w),dFdy(w)));vec3 V=normalize(uEye-w);if(dot(N,V)<0.)N=-N;vec3 s=vec3(0.);for(int i=0;i<8;i++){if(i>=uNDL)break;if(i<uDL0)continue;vec3 L=uDL[i].xyz-w;float d=length(L);L/=max(d,1e-3);float at=max(0.,1.-d/uDL[i].w);float nl=max(0.,dot(N,L));vec3 H=normalize(L+V);s+=uDLC[i]*at*(nl*1.25+pow(max(dot(N,H),0.),28.)*.3*nl);}return s;}uniform sampler2D uTex;uniform sampler2D uLMap;uniform float uBright;uniform float uAlpha;uniform float uTime;uniform int uWarp;uniform int uLiquid;uniform float uAlphaTest;uniform int uTexAlpha;uniform vec2 uScroll;out vec4 o;
+  H + `in vec2 vUV;in vec2 vLM;in float vL;in vec3 vW;in vec3 vLC;in vec3 vDV;uniform int uLMode;uniform vec3 uEye;uniform vec4 uDL[8];uniform vec3 uDLC[8];uniform int uNDL;vec3 dyn(vec3 w){vec3 s=vec3(0.);for(int i=0;i<8;i++){if(i>=uNDL)break;float d=distance(w,uDL[i].xyz);s+=uDLC[i]*max(0.,1.-d/uDL[i].w);}return s;}uniform int uDL0;vec3 dynM(vec3 w){if(uLMode==1)return vDV;if(uLMode!=2)return dyn(w);vec3 N=normalize(cross(dFdx(w),dFdy(w)));vec3 V=normalize(uEye-w);if(dot(N,V)<0.)N=-N;vec3 s=vec3(0.);for(int i=0;i<8;i++){if(i>=uNDL)break;if(i<uDL0)continue;vec3 L=uDL[i].xyz-w;float d=length(L);L/=max(d,1e-3);float at=max(0.,1.-d/uDL[i].w);float nl=max(0.,dot(N,L));vec3 H=normalize(L+V);s+=uDLC[i]*at*(nl*1.25+pow(max(dot(N,H),0.),28.)*.3*nl);}return s;}uniform float uAmbK;uniform sampler2D uTex;uniform sampler2D uLMap;uniform float uBright;uniform float uAlpha;uniform float uTime;uniform int uWarp;uniform int uLiquid;uniform float uAlphaTest;uniform int uTexAlpha;uniform vec2 uScroll;out vec4 o;
 void main(){vec2 uv=vUV+uScroll*uTime;vec3 l;
-if(uWarp==1){uv+=0.125*vec2(sin(vUV.y*8.+uTime),sin(vUV.x*8.+uTime));l=vec3(vL*uBright);}else{l=(uLMode==1?vLC:texture(uLMap,vLM).rgb)*uBright*vL;}
+if(uWarp==1){uv+=0.125*vec2(sin(vUV.y*8.+uTime),sin(vUV.x*8.+uTime));l=vec3(vL*uBright);}else{l=(uLMode==1?vLC:texture(uLMap,vLM).rgb)*uBright*vL*uAmbK;}
 vec4 tx=texture(uTex,uv);if(uAlphaTest>0.){vec2 ts=vec2(textureSize(uTex,0));vec2 dd=max(abs(dFdx(uv*ts)),abs(dFdy(uv*ts)));tx.a*=1.+max(0.,log2(max(max(dd.x,dd.y),1e-4)))*.25;if(tx.a<uAlphaTest)discard;}
 vec3 c=tx.rgb*(l+dynM(vW));float al=uAlpha*(uTexAlpha==1?tx.a:1.);
 if(uLiquid==3){c=tx.rgb*(1.25+.15*sin(uTime*2.+vW.x*.02+vW.y*.015));al=1.;}
@@ -96,16 +97,16 @@ else if(uTcGen==2){vec3 V=normalize(uEye-vW);float d=dot(n,V);vec3 r=n*2.*d-V;uv
 else if(uTcGen==3)uv=vec2(dot(p,uTV0),dot(p,uTV1));
 vUV=uv;vLM=aLM;vL=aL;vC=aC;vLC=vec3(0.);vDV=vec3(0.);if(uLMode==1){vLC=textureLod(uLMap,aLM,0.).rgb;vDV=dyn(vW);}gl_Position=uMVP*vec4(vW,1.);}`,
   H + `in vec2 vUV;in vec2 vLM;in float vL;in vec3 vW;in vec4 vC;in vec3 vLC;in vec3 vDV;uniform int uLMode;uniform vec3 uEye;uniform vec4 uDL[8];uniform vec3 uDLC[8];uniform int uNDL;vec3 dyn(vec3 w){vec3 s=vec3(0.);for(int i=0;i<8;i++){if(i>=uNDL)break;float d=distance(w,uDL[i].xyz);s+=uDLC[i]*max(0.,1.-d/uDL[i].w);}return s;}uniform int uDL0;vec3 dynM(vec3 w){if(uLMode==1)return vDV;if(uLMode!=2)return dyn(w);vec3 N=normalize(cross(dFdx(w),dFdy(w)));vec3 V=normalize(uEye-w);if(dot(N,V)<0.)N=-N;vec3 s=vec3(0.);for(int i=0;i<8;i++){if(i>=uNDL)break;if(i<uDL0)continue;vec3 L=uDL[i].xyz-w;float d=length(L);L/=max(d,1e-3);float at=max(0.,1.-d/uDL[i].w);float nl=max(0.,dot(N,L));vec3 H=normalize(L+V);s+=uDLC[i]*at*(nl*1.25+pow(max(dot(N,H),0.),28.)*.3*nl);}return s;}
-uniform sampler2D uTex;uniform sampler2D uLMap;uniform float uBright;uniform float uTime;uniform int uSrc;uniform int uFuse;uniform vec4 uCol;uniform int uVCol;uniform int uAVert;uniform float uAPortal;uniform int uAFunc;
+uniform float uAmbK;uniform sampler2D uTex;uniform sampler2D uLMap;uniform float uBright;uniform float uTime;uniform int uSrc;uniform int uFuse;uniform vec4 uCol;uniform int uVCol;uniform int uAVert;uniform float uAPortal;uniform int uAFunc;
 uniform vec3 uRS;uniform vec3 uRT;uniform vec3 uPS;uniform vec3 uPT;uniform vec4 uTurb;uniform vec3 uFogC;uniform float uFogD;uniform int uFogMode;out vec4 o;
 void main(){vec3 q=vec3(vUV,1.);vec2 uv=vec2(dot(uRS,q),dot(uRT,q));
 if(uTurb.w>0.){float now=uTurb.y+uTime*uTurb.z;uv+=uTurb.x*vec2(sin(((vW.x+vW.z)*.0009765625+now)*6.2831853),sin((vW.y*.0009765625+now)*6.2831853));}
 uv=vec2(dot(uPS,vec3(uv,1.)),dot(uPT,vec3(uv,1.)));
 vec4 c;if(uSrc==0){c=texture(uTex,uv);if(uAFunc>0){vec2 ts=vec2(textureSize(uTex,0));vec2 dd=max(abs(dFdx(uv*ts)),abs(dFdy(uv*ts)));c.a*=1.+max(0.,log2(max(max(dd.x,dd.y),1e-4)))*.25;}}
-else if(uSrc==1)c=vec4((uLMode==1?vLC:texture(uLMap,vLM).rgb)*uBright*vL,1.);else c=vec4(1.);
+else if(uSrc==1)c=vec4((uLMode==1?vLC:texture(uLMap,vLM).rgb)*uBright*vL*uAmbK,1.);else c=vec4(1.);
 vec3 m=uCol.rgb;if(uVCol==1)m*=vC.rgb*uBright;float am=uCol.a;if(uAVert==1)am*=vC.a;if(uAPortal>0.)am*=clamp(distance(uEye,vW)/uAPortal,0.,1.);
 c.rgb*=m;c.a*=am;
-if(uFuse==1)c.rgb*=(uLMode==1?vLC:texture(uLMap,vLM).rgb)*uBright*vL+dynM(vW);
+if(uFuse==1)c.rgb*=(uLMode==1?vLC:texture(uLMap,vLM).rgb)*uBright*vL*uAmbK+dynM(vW);
 if(uAFunc==1&&c.a<=.001)discard;if(uAFunc==2&&c.a>=.5)discard;if(uAFunc==3&&c.a<.5)discard;
 if(uFogMode>0){float f=clamp(distance(uEye,vW)*uFogD,0.,1.);c.rgb=uFogMode==2?c.rgb*(1.-f):mix(c.rgb,uFogC,f);}
 o=vec4(min(c.rgb,vec3(1.)),c.a);}`, ['aPos', 'aUV', 'aLM', 'aL', 'aN', 'aC']);
@@ -133,14 +134,18 @@ if(z>0.){vec2 uv=d.xy/(z+.18)*1.4+vec2(uTime*.015,uTime*.006);float k=fbm(uv);c=
 vec3 sd=normalize(vec3(.45,.25,.32));float s=max(dot(d,sd),0.);c+=vec3(1.,.8,.55)*pow(s,300.)*2.+vec3(1.,.55,.3)*pow(s,6.)*.18;o=vec4(c,1.);}`, ['aPos']);
 const solidP = gl && prog(gl, H + `in vec3 aPos;in vec3 aNorm;uniform mat4 uMVP;uniform mat4 uM;out vec3 vN;out vec3 vW;void main(){vN=mat3(uM)*aNorm;vW=(uM*vec4(aPos,1.)).xyz;gl_Position=uMVP*vec4(aPos,1.);}`,
   H + `in vec3 vN;in vec3 vW;uniform vec4 uColor;uniform float uLit;uniform vec3 uEye;uniform vec4 uDL[8];uniform vec3 uDLC[8];uniform int uNDL;out vec4 o;
-uniform int uPixL;void main(){vec3 n=normalize(vN),L=normalize(vec3(.3,.6,.75)),V=normalize(uEye-vW);vec3 s=vec3(0.);for(int i=0;i<8;i++){if(i>=uNDL)break;vec3 Ld=uDL[i].xyz-vW;float d=length(Ld);float k=uPixL==1?max(dot(n,Ld/max(d,1e-3)),0.)*1.35+.12:1.;s+=uDLC[i]*max(0.,1.-d/uDL[i].w)*k;}
+uniform int uPixL;uniform int uSunOn;uniform vec3 uSunD;uniform vec3 uSunC;uniform mat4 uSVP;uniform highp sampler2DShadow uSM;
+float sunVis(vec3 w){vec4 s=uSVP*vec4(w,1.);vec3 q=s.xyz*.5+.5;if(q.x<0.||q.y<0.||q.x>1.||q.y>1.||q.z>1.)return 1.;float t=1./2048.,v=0.;for(int i=-1;i<=1;i++)for(int j=-1;j<=1;j++)v+=texture(uSM,vec3(q.xy+vec2(i,j)*t,q.z-.0003));return v/9.;}
+void main(){vec3 n=normalize(vN),L=normalize(vec3(.3,.6,.75)),V=normalize(uEye-vW);vec3 s=vec3(0.);for(int i=0;i<8;i++){if(i>=uNDL)break;vec3 Ld=uDL[i].xyz-vW;float d=length(Ld);float k=uPixL>=1?max(dot(n,Ld/max(d,1e-3)),0.)*1.35+.12:1.;s+=uDLC[i]*max(0.,1.-d/uDL[i].w)*k;}
+if(uSunOn==1){float k=max(dot(n,uSunD),0.);if(k>0.)s+=uSunC*k*1.3*sunVis(vW+n*2.);}
 vec3 hemi=mix(vec3(.26,.25,.25),vec3(.52,.56,.64),n.z*.5+.5);float dif=max(dot(n,L),0.)*.62;float sp=pow(max(dot(reflect(-L,n),V),0.),20.)*.22;float rim=pow(1.-max(dot(n,V),0.),3.)*.22;
-vec3 c=uColor.rgb*(hemi+dif+s+rim)+vec3(sp);o=vec4(mix(uColor.rgb,c,uLit),uColor.a);}`, ['aPos', 'aNorm']);
+if(uPixL==2){hemi*=.28;dif*=.28;sp*=.3;rim*=.4;}vec3 c=uColor.rgb*(hemi+dif+s+rim)+vec3(sp);o=vec4(mix(uColor.rgb,c,uLit),uColor.a);}`, ['aPos', 'aNorm']);
 const MD2VS = H + `in vec3 aPos;in vec3 aNorm;in vec2 aUV;uniform mat4 uMVP;uniform mat4 uM;out vec2 vUV;out vec3 vN;out vec3 vW;void main(){gl_Position=uMVP*vec4(aPos,1.);vN=mat3(uM)*aNorm;vUV=aUV;vW=(uM*vec4(aPos,1.)).xyz;}`;
-const MD2FS = H + `in vec2 vUV;in vec3 vN;in vec3 vW;uniform vec4 uPow;uniform float uPowT;uniform vec4 uDL[8];uniform vec3 uDLC[8];uniform int uNDL;vec3 dyn(vec3 w){vec3 s=vec3(0.);for(int i=0;i<8;i++){if(i>=uNDL)break;float d=distance(w,uDL[i].xyz);s+=uDLC[i]*max(0.,1.-d/uDL[i].w);}return s;}uniform sampler2D uTex;uniform float uAmb;uniform float uShade;uniform vec3 uLDir;uniform int uEnv;uniform vec3 uEyeM;uniform float uCut;uniform vec3 uTR;uniform vec3 uTT;uniform vec4 uMul;uniform int uOver;uniform int uLitO;uniform int uPixL;out vec4 o;
-vec3 dynP(vec3 w,vec3 n){vec3 s=vec3(0.);for(int i=0;i<8;i++){if(i>=uNDL)break;vec3 L=uDL[i].xyz-w;float d=length(L);L/=max(d,1e-3);float at=max(0.,1.-d/uDL[i].w);s+=uDLC[i]*at*(max(dot(n,L),0.)*1.35+.12);}return s;}
-vec3 dl(vec3 w,vec3 n){return uPixL==1?dynP(w,n):dyn(w);}
-void m1(){vec3 n=normalize(vN);float l=uAmb+(1.-uAmb)*max(dot(n,uLDir),0.);vec2 uv=vUV;if(uEnv==1){vec3 r=reflect(normalize(vW-uEyeM),n);uv=vec2(.5+.5*r.y,.5-.5*r.z);}uv=vec2(dot(uTR,vec3(uv,1.)),dot(uTT,vec3(uv,1.)));vec4 tx=texture(uTex,uv);if(uCut>0.&&tx.a<uCut)discard;vec3 t=tx.rgb;if(uOver==1){t*=uMul.rgb;if(uLitO==1)t=t*l*uShade+t*dl(vW,n);o=vec4(min(t,vec3(1.5)),tx.a*uMul.a);return;}if(uEnv==1){o=vec4(t*(.3+.7*l)*uShade*.8,1.);return;}o=vec4(min(t*l*uShade+t*dl(vW,n),vec3(1.)),1.);}
+const MD2FS = H + `in vec2 vUV;in vec3 vN;in vec3 vW;uniform vec4 uPow;uniform float uPowT;uniform vec4 uDL[8];uniform vec3 uDLC[8];uniform int uNDL;vec3 dyn(vec3 w){vec3 s=vec3(0.);for(int i=0;i<8;i++){if(i>=uNDL)break;float d=distance(w,uDL[i].xyz);s+=uDLC[i]*max(0.,1.-d/uDL[i].w);}return s;}uniform sampler2D uTex;uniform float uAmb;uniform float uShade;uniform vec3 uLDir;uniform int uEnv;uniform vec3 uEyeM;uniform float uCut;uniform vec3 uTR;uniform vec3 uTT;uniform vec4 uMul;uniform int uOver;uniform int uLitO;uniform int uPixL;uniform int uSunOn;uniform vec3 uSunD;uniform vec3 uSunC;uniform mat4 uSVP;uniform highp sampler2DShadow uSM;out vec4 o;
+float sunVis(vec3 w){vec4 s=uSVP*vec4(w,1.);vec3 q=s.xyz*.5+.5;if(q.x<0.||q.y<0.||q.x>1.||q.y>1.||q.z>1.)return 1.;float t=1./2048.,v=0.;for(int i=-1;i<=1;i++)for(int j=-1;j<=1;j++)v+=texture(uSM,vec3(q.xy+vec2(i,j)*t,q.z-.0003));return v/9.;}
+vec3 dynP(vec3 w,vec3 n){vec3 s=vec3(0.);if(uSunOn==1){float k=max(dot(n,uSunD),0.);if(k>0.)s+=uSunC*k*1.3*sunVis(w+n*2.);}for(int i=0;i<8;i++){if(i>=uNDL)break;vec3 L=uDL[i].xyz-w;float d=length(L);L/=max(d,1e-3);float at=max(0.,1.-d/uDL[i].w);s+=uDLC[i]*at*(max(dot(n,L),0.)*1.35+.12);}return s;}
+vec3 dl(vec3 w,vec3 n){return uPixL>=1?dynP(w,n):dyn(w);}
+void m1(){vec3 n=normalize(vN);float l=uAmb+(1.-uAmb)*max(dot(n,uLDir),0.);if(uPixL==2)l*=.28;vec2 uv=vUV;if(uEnv==1){vec3 r=reflect(normalize(vW-uEyeM),n);uv=vec2(.5+.5*r.y,.5-.5*r.z);}uv=vec2(dot(uTR,vec3(uv,1.)),dot(uTT,vec3(uv,1.)));vec4 tx=texture(uTex,uv);if(uCut>0.&&tx.a<uCut)discard;vec3 t=tx.rgb;if(uOver==1){t*=uMul.rgb;if(uLitO==1)t=t*l*uShade+t*dl(vW,n);o=vec4(min(t,vec3(1.5)),tx.a*uMul.a);return;}if(uEnv==1){o=vec4(t*(.3+.7*l)*uShade*.8,1.);return;}o=vec4(min(t*l*uShade+t*dl(vW,n),vec3(1.)),1.);}
 void main(){m1();if(uPow.a>0.){float w=.5+.5*sin(uPowT*7.+vW.z*.12+vW.x*.07+vW.y*.05);float rim=1.-abs(dot(normalize(vN),vec3(.4,.3,.866)));o.rgb=mix(o.rgb,o.rgb*(vec3(1.)+uPow.rgb*.9)+uPow.rgb*.2,uPow.a);o.rgb+=uPow.rgb*uPow.a*(.15+.55*w*(.4+rim));o.rgb=min(o.rgb,vec3(1.5));}}`;
 const partP = gl && prog(gl, H + `in vec2 aC;in vec4 aPS;in vec4 aCol;in vec2 aKS;uniform mat4 uVP;uniform vec3 uR;uniform vec3 uU;uniform vec3 uEye;out vec2 vUV;out vec4 vCol;out vec2 vKS;out float vF;
 void main(){float an=aKS.y*6.2831;vec2 c=vec2(cos(an)*aC.x-sin(an)*aC.y,sin(an)*aC.x+cos(an)*aC.y);vec3 te=uEye-aPS.xyz;float de=length(te);bool fl=aKS.x>3.5&&aKS.x<5.5;vec3 ctr=fl?aPS.xyz:aPS.xyz+te/max(de,1.)*min(aPS.w*.6,de*.5);vec3 p=ctr+(fl?vec3(c.x,c.y,0.):uR*c.x+uU*c.y)*aPS.w;gl_Position=uVP*vec4(p,1.);vUV=aC;vCol=aCol;vKS=aKS;vF=fl?1.:clamp((de-aPS.w*.5)/(aPS.w*1.5+1.),0.,1.);}`,
@@ -527,7 +532,7 @@ function parseMD2(d) {
   return { skins, corners, uv, frames, anims, n: ntri * 3 };
 }
 function makeCtx(g) {
-  const P = prog(g, MD2VS, MD2FS, MD2A); g.useProgram(P.p); g.uniform3f(P.u.uTR, 1, 0, 0); g.uniform3f(P.u.uTT, 0, 1, 0); g.uniform4f(P.u.uMul, 1, 1, 1, 1); g.uniform1i(P.u.uOver, 0); g.uniform1i(P.u.uLitO, 0);
+  const P = prog(g, MD2VS, MD2FS, MD2A); g.useProgram(P.p); g.uniform3f(P.u.uTR, 1, 0, 0); g.uniform3f(P.u.uTT, 0, 1, 0); g.uniform4f(P.u.uMul, 1, 1, 1, 1); g.uniform1i(P.u.uOver, 0); g.uniform1i(P.u.uLitO, 0); g.uniform1i(P.u.uSM, 5); g.uniform1i(P.u.uSunOn, 0);
   return { g, P, tex: new Map(), inst: new Map(), grey: null };
 }
 function md2Inst(ctx, model) {
@@ -563,7 +568,7 @@ function md2Draw(ctx, inst, tex, fa, fb, t, vp, M, shade = 1, amb = 0.5) {
   const P = ctx.P; g.useProgram(P.p);
   g.uniformMatrix4fv(P.u.uMVP, false, mul(vp, M)); g.uniformMatrix4fv(P.u.uM, false, M);
   g.uniform1f(P.u.uAmb, amb); g.uniform1f(P.u.uShade, shade); g.uniform4fv(P.u.uPow, POWV); g.uniform1f(P.u.uPowT, realTime / 1000); g.uniform1i(P.u.uPixL, ctx === mainCtx && S.light === 'pixel' ? 1 : 0);
-  if (ctx === mainCtx) { g.uniform4fv(P.u['uDL[0]'], DLP); g.uniform3fv(P.u['uDLC[0]'], DLC); g.uniform1i(P.u.uNDL, nDL); } else g.uniform1i(P.u.uNDL, 0); g.uniform3fv(P.u.uLDir, [0.4, 0.3, 0.866]); g.uniform1i(P.u.uTex, 0);
+  if (ctx === mainCtx) { if (!setModelPix(g, P, M)) { g.uniform4fv(P.u['uDL[0]'], DLP); g.uniform3fv(P.u['uDLC[0]'], DLC); g.uniform1i(P.u.uNDL, nDL); } } else { g.uniform1i(P.u.uNDL, 0); g.uniform1i(P.u.uSunOn, 0); } g.uniform3fv(P.u.uLDir, [0.4, 0.3, 0.866]); g.uniform1i(P.u.uTex, 0);
   g.activeTexture(g.TEXTURE0); g.bindTexture(g.TEXTURE_2D, tex || greyTex(ctx));
   g.bindVertexArray(inst.vao); g.drawArrays(g.TRIANGLES, 0, m.n);
   if (ctx === mainCtx) { if (SHCAP) capTris(out, null, m.n, M); if (POWS) shellDraw(inst.vao, m.n, false, M, vp); }
@@ -621,7 +626,7 @@ function uploadWorld(G, lmTex) {
       const o = (base + k) * 7; let nx = 0, ny = 0, nz = 1; if (g.n) { nx = g.n[k * 3]; ny = g.n[k * 3 + 1]; nz = g.n[k * 3 + 2]; const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l; }
       xb[o] = nx; xb[o + 1] = ny; xb[o + 2] = nz; if (g.c) { xb[o + 3] = g.c[k * 4]; xb[o + 4] = g.c[k * 4 + 1]; xb[o + 5] = g.c[k * 4 + 2]; xb[o + 6] = g.c[k * 4 + 3]; } else { xb[o + 3] = xb[o + 4] = xb[o + 5] = xb[o + 6] = 1; }
     }
-    batches.push({ anim: g.anim, animFps: g.animFps, tex: g.tex, kind: g.kind, alpha: g.alpha, warp: g.warp, liquid: g.liquid || 0, alphaTest: g.alphaTest, texAlpha: g.texAlpha, scroll: g.scroll, model: g.model || 0, polyOff: !!g.polyOff, start: io, count: g.i.length, rt: g.rt, auto: g.autoQ ? { v0: base, nv: ng, quads: g.autoQ } : null });
+    batches.push({ emit: !!g.emit, nocast: !castOK(g), anim: g.anim, animFps: g.animFps, tex: g.tex, kind: g.kind, alpha: g.alpha, warp: g.warp, liquid: g.liquid || 0, alphaTest: g.alphaTest, texAlpha: g.texAlpha, scroll: g.scroll, model: g.model || 0, polyOff: !!g.polyOff, start: io, count: g.i.length, rt: g.rt, auto: g.autoQ ? { v0: base, nv: ng, quads: g.autoQ } : null });
     vo += g.v.length; io += g.i.length;
   }
   const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
@@ -695,7 +700,7 @@ function buildBrushWorld(d, name, id) {
   let lm = null; if (baked) lm = bakeBrushLight(d, cm, faces.filter(f => !f.liq));
   for (const f of faces) {
     const mat = f.br.mat; if (!texCache[mat]) texCache[mat] = makeTex(gl, procTex(mat));
-    const liq = f.liq, g = grp(G, mat, { tex: texCache[mat], kind: liq ? 'trans' : 'opaque', alpha: liq === 2 ? .8 : liq ? 0.45 : 1, warp: !!liq, liquid: liq || 0 });
+    const liq = f.liq, g = grp(G, mat, { emit: !!FULL[mat] || liq === 3, nocast: mat === 'sky', tex: texCache[mat], kind: liq ? 'trans' : 'opaque', alpha: liq === 2 ? .8 : liq ? 0.45 : 1, warp: !!liq, liquid: liq || 0 });
     const n = f.n, ax = Math.abs(n[0]), ay = Math.abs(n[1]), az = Math.abs(n[2]);
     const shade = mat === 'pad' ? 1 : (0.42 + 0.45 * Math.max(0, Q.dot(n, L)) + 0.13 * Math.max(0, n[2])) * (n[2] < -0.5 ? 0.6 : 1);
     addPoly(g, f.w.map(p => {
@@ -710,6 +715,7 @@ function buildBrushWorld(d, name, id) {
   w.textures = []; w.cm = cm; w.staticTriggers = d.triggers.map(t => ({ ...t }));
   w.ents = d.barrels.map(b => ({ classname: 'misc_explobox', origin: b.join(' ') }));
   w.spawns = d.spawns.map(s => ({ ...s, name: '' })); w.name = name; w.demo = true; w.builtin = id;
+  w.blights = d.lights || []; w.sunDef = id === 'test' ? { yaw: 35, elev: 52, c: [1, .93, .8] } : id === 'kappa' ? { yaw: 130, elev: 62, c: [.3, .38, .6] } : null;
   return w;
 }
 // ---------- built-in campaign: Outpost Kappa ----------
@@ -961,7 +967,7 @@ async function buildBSPWorld(path, progress) {
       A[di] = L[si]; A[di + 1] = L[si + 1]; A[di + 2] = L[si + 2]; A[di + 3] = 255;
     }
   }
-  const G = new Map(), W = 2 / size;
+  const G = new Map(), W = 2 / size, surfL = [];
   for (const r of faces) {
     const fl = r.ti.flags;
     if (fl & Q.SURF_SKY) { addPoly(grp(G, 'sky' + r.mi, { kind: 'sky', model: r.mi }), r.pts.map(p => [p[0], p[1], p[2], 0, 0, 0, 0, 0])); continue; }
@@ -969,7 +975,8 @@ async function buildBSPWorld(path, progress) {
     const alpha = fl & Q.SURF_TRANS33 ? 0.33 : fl & Q.SURF_TRANS66 ? 0.66 : r.ghost ? 0.4 : 1;
     let anim = null; // Quake II texture animation: texinfo.next chains frames, advancing twice a second
     if (r.ti.next >= 0 && r.ti.next < b.texinfo.length) { const names = [r.ti.name]; let n = r.ti.next, guard = 0; while (n >= 0 && n < b.texinfo.length && b.texinfo[n].name !== r.ti.name && guard++ < 32) { names.push(b.texinfo[n].name); n = b.texinfo[n].next; } if (names.length > 1) anim = names.map(nm => (texMap.get(nm) || T).tex); }
-    const g = grp(G, `${r.mi}|${alpha < 1 ? 't' : 'o'}|${r.ti.name}|${warp}|${alpha}`, { anim, animFps: 2, tex: T.tex, kind: alpha < 1 ? 'trans' : 'opaque', alpha, warp, liquid: warp ? (/lava/.test(r.ti.name) ? 3 : /slime|sludge/.test(r.ti.name) ? 2 : 1) : 0, model: r.mi });
+    const lit2 = (fl & 1) && r.ti.value > 0 && alpha === 1; if (lit2 || (warp && /lava/.test(r.ti.name))) surfL.push({ pts: r.pts, v: lit2 ? r.ti.value : 300, tex: T.tex });
+    const g = grp(G, `${r.mi}|${alpha < 1 ? 't' : 'o'}|${r.ti.name}|${warp}|${alpha}|${lit2 ? 'e' : ''}`, { emit: lit2 || (warp && /lava/.test(r.ti.name)), anim, animFps: 2, tex: T.tex, kind: alpha < 1 ? 'trans' : 'opaque', alpha, warp, liquid: warp ? (/lava/.test(r.ti.name) ? 3 : /slime|sludge/.test(r.ti.name) ? 2 : 1) : 0, model: r.mi });
     const V = r.ti.vecs, l = r.lm;
     addPoly(g, r.pts.map(p => {
       const s = p[0] * V[0] + p[1] * V[1] + p[2] * V[2] + V[3], t = p[0] * V[4] + p[1] * V[5] + p[2] * V[6] + V[7];
@@ -980,7 +987,7 @@ async function buildBSPWorld(path, progress) {
   }
   const w = uploadWorld(G, makeTex(gl, A, size, size, { lightmap: true }));
   w.textures = [...new Set([...texMap.values()].map(t => t.tex))];
-  w.cm = Q.cmFromBSP(b); w.models = b.models; w.ents = ents; w.staticTriggers = [];
+  w.cm = Q.cmFromBSP(b); w.models = b.models; w.ents = ents; w.staticTriggers = []; w.surfL = surfL;
   const ws = ents.find(e => e.classname === 'worldspawn') || {};
   w.message = ws.message ? ws.message.replace(/\\n/g, ' ') : '';
   progress('loading sky…');
@@ -3358,10 +3365,11 @@ function playerAnim() {
 
 // ---------- rendering ----------
 let realTime = 0, attract = false; // attract: the slow fly-around behind the title screen
-let solidFrame = -1, vmSpin = 0;
+let solidFrame = -1, vmSpin = 0, solidVS = false;
 function drawSolid(vp, mesh, M, color, lit = 1) {
   gl.useProgram(solidP.p);
-  if (solidFrame !== realTime) { solidFrame = realTime; gl.uniform3fv(solidP.u.uEye, curEye); gl.uniform4fv(solidP.u['uDL[0]'], DLP); gl.uniform3fv(solidP.u['uDLC[0]'], DLC); gl.uniform1i(solidP.u.uNDL, nDL); gl.uniform1i(solidP.u.uPixL, S.light === 'pixel' ? 1 : 0); }
+  if (solidFrame !== realTime) { solidFrame = realTime; gl.uniform3fv(solidP.u.uEye, curEye); gl.uniform4fv(solidP.u['uDL[0]'], DLP); gl.uniform3fv(solidP.u['uDLC[0]'], DLC); gl.uniform1i(solidP.u.uNDL, nDL); gl.uniform1i(solidP.u.uPixL, S.light === 'pixel' ? 1 : 0); gl.uniform1i(solidP.u.uSunOn, 0); }
+  if (!solidVS) setModelPix(gl, solidP, M);
   gl.uniformMatrix4fv(solidP.u.uMVP, false, mul(vp, M)); gl.uniformMatrix4fv(solidP.u.uM, false, M);
   if (POWV[3] > 0) { const a = POWV[3], w = .5 + .5 * Math.sin(realTime / 1000 * 7 + M[12] * .07 + M[13] * .05 + M[14] * .1); color = [0, 1, 2].map(i => Math.min(1.4, color[i] * (1 + POWV[i] * .9 * a) + POWV[i] * a * (.2 + .45 * w))).concat(color[3]); } // powerup glow on box-built models
   gl.uniform4fv(solidP.u.uColor, color); gl.uniform1f(solidP.u.uLit, lit);
@@ -3373,11 +3381,13 @@ function drawBatches(list, inTrans) {
   const ms = world.mstate; let cur = 0;
   for (const b of list) {
     let off = Z3; if (b.model) { const s = ms[b.model]; if (s) { if (!s.visible) continue; off = s.o; } }
+    const ak = AMBK(b);
     if (b.rt) {
       if (cur !== 2) { gl.useProgram(shP.p); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, world.lmTex); cur = 2; }
-      drawRT(b, off, inTrans); continue;
+      gl.uniform1f(shP.u.uAmbK, ak); drawRT(b, off, inTrans); continue;
     }
     if (cur !== 1) { gl.useProgram(worldP.p); cur = 1; }
+    gl.uniform1f(worldP.u.uAmbK, ak);
     gl.uniform3fv(worldP.u.uOff, off);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, b.anim ? b.anim[Math.floor(realTime / 1000 * b.animFps) % b.anim.length] : b.tex);
     gl.uniform1i(worldP.u.uWarp, b.warp ? 1 : 0); gl.uniform1f(worldP.u.uAlpha, b.alpha);
@@ -3402,13 +3412,133 @@ function drawPlaceholder(vp, o, y) {
 // Phong shading wherever the stencil count is zero. The remaining lights stay on the cheap unshadowed path.
 let SHL = [], SHCAP = false; const capBuf = { a: new Float32Array(1 << 16), n: 0 };
 const shadowsOn = () => S.light === 'pixel' && !!gl && gl.getContextAttributes().stencil && !!svP;
-function pickShadowLights() {
-  SHL = [];
+let nDynSh = 0, SUNL = null, frameNo = 0; const MAXST = 10;
+function pickShadowLights(eye, vp, W, H, dt) {
+  SHL = []; SUNL = null; nDynSh = 0;
   if (!shadowsOn()) return;
-  for (let i = 0; i < nDL && SHL.length < 4; i++) { const c = [DLC[i * 3], DLC[i * 3 + 1], DLC[i * 3 + 2]]; SHL.push({ p: [DLP[i * 4], DLP[i * 4 + 1], DLP[i * 4 + 2]], r: DLP[i * 4 + 3], c }); }
+  for (let i = 0; i < nDL && SHL.length < 4; i++) { const c = [DLC[i * 3], DLC[i * 3 + 1], DLC[i * 3 + 2]]; SHL.push({ p: [DLP[i * 4], DLP[i * 4 + 1], DLP[i * 4 + 2]], r: DLP[i * 4 + 3], c, dyn: true }); }
+  nDynSh = SHL.length;
+  if (!world) return; if (!world.plights) buildPixLights(world);
+  const cand = [];
+  for (const l of world.plights) {
+    const d = Math.hypot(l.p[0] - eye[0], l.p[1] - eye[1], l.p[2] - eye[2]);
+    if (d - l.r > 3000 || !lightRect(vp, l, W, H)) { l.f = 0; continue; }
+    cand.push({ l, s: Math.max(0, d - l.r) * 2 + d * .25 - Math.max(...l.c) * 60 });
+  }
+  cand.sort((a, b) => a.s - b.s);
+  for (let i = 0; i < cand.length; i++) {
+    const l = cand[i].l; if (i >= MAXST) { l.f = 0; continue; }
+    l.f = Math.min(1, (l.f || 0) + dt * 4); SHL.push({ p: l.p, r: l.r, c: l.c.map(v => v * l.f), spot: l.spot || null });
+  }
+  if (world.sun) SUNL = world.sun;
+}
+const AMBK = b => !SHL.length && !SUNL ? 1 : b.emit ? 1 : b.liquid ? .6 : .22;
+// Light sources for the per-pixel mode: the map's light entities (spotlights keep their cone), light-emitting surfaces merged into
+// point lights (Quake II SURF_LIGHT faces and lava, Quake III q3map_surfacelight shaders, coloured by their picture), the built-in
+// maps' lamps, and a sun — q3map_sun from the sky shader, or a default over maps with sky.
+function avgTex(tex) {
+  const sz = tex && TEXSZ.get(tex); if (!sz) return [1, 1, 1];
+  const lv = Math.floor(Math.log2(Math.max(sz[0], sz[1], 1))), fb = gl.createFramebuffer(), px = new Uint8Array(4);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fb); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, lv);
+  const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE; if (ok) gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.deleteFramebuffer(fb);
+  return ok ? [px[0] / 255, px[1] / 255, px[2] / 255] : [1, 1, 1];
+}
+const lightCol = c => { const m = Math.max(c[0], c[1], c[2], 1e-3); return c.map(v => .3 + .7 * v / m); };
+function entLights(ents, q3) {
+  const out = [], byName = new Map(); for (const e of ents) if (e.targetname) byName.set(e.targetname, e);
+  for (const e of ents) {
+    if (!/^light/.test(e.classname || '') || /^light_mine/.test(e.classname)) continue;
+    const v = +(e.light ?? e._light ?? 300); if (!(v > 0) || !e.origin) continue;
+    const o = Q.vecOf(e.origin); let c = e._color || e.color ? Q.vecOf(e._color || e.color) : [1, 1, 1]; if (Math.max(...c) > 1.01) c = c.map(x => x / 255);
+    const r = q3 ? Math.min(1400, Math.max(64, Math.sqrt(v) * 28)) : Math.min(1200, Math.max(64, v));
+    const L = { p: o, r, c: lightCol(c).map(x => x * Math.min(1.25, .55 + v / 600)) };
+    const t = e.target && byName.get(e.target);
+    if (t && t.origin) { const to = Q.vecOf(t.origin), d = [to[0] - o[0], to[1] - o[1], to[2] - o[2]], len = Math.hypot(...d) || 1;
+      const cosA = q3 ? len / Math.hypot(len, +(e.radius || 64)) : Math.cos((+(e._cone || 10) + 10) * Math.PI / 180);
+      L.spot = [d[0] / len, d[1] / len, d[2] / len, cosA]; L.r *= 1.4; }
+    out.push(L);
+  }
+  return out;
+}
+function clusterSurf(list) {
+  const cells = new Map(), colOf = new Map();
+  for (const s of list) {
+    let col = colOf.get(s.tex); if (!col) colOf.set(s.tex, col = lightCol(avgTex(s.tex)));
+    const tris = s.tris || []; if (s.pts) for (let k = 1; k + 1 < s.pts.length; k++) tris.push(s.pts[0], s.pts[k], s.pts[k + 1]);
+    for (let k = 0; k + 2 < tris.length; k += 3) {
+      const a = tris[k], b = tris[k + 1], c = tris[k + 2], n = Q.cross([b[0] - a[0], b[1] - a[1], b[2] - a[2]], [c[0] - a[0], c[1] - a[1], c[2] - a[2]]), A2 = Math.hypot(...n); if (A2 < 1e-3) continue;
+      const area = A2 / 2, nn = n.map(x => x / A2), ctr = [0, 1, 2].map(i => (a[i] + b[i] + c[i]) / 3);
+      const key = [0, 1, 2].map(i => Math.floor(ctr[i] / 112)).join(',') + '|' + col.map(x => x.toFixed(1)).join(',') + '|' + nn.map(x => Math.round(x)).join(',');
+      let cl = cells.get(key); if (!cl) cells.set(key, cl = { w: 0, p: [0, 0, 0], col, va: 0 });
+      const w = area * s.v; cl.w += w; cl.va += area * s.v; for (let i = 0; i < 3; i++) cl.p[i] += (ctr[i] + nn[i] * 10) * w;
+    }
+  }
+  const out = [];
+  for (const cl of cells.values()) { if (cl.w <= 0) continue; const r = Math.min(640, Math.max(128, Math.sqrt(cl.va) * .35)); out.push({ p: cl.p.map(x => x / cl.w), r, c: cl.col.map(x => x * Math.min(1.2, .6 + r / 900)) }); }
+  return out;
+}
+function buildPixLights(w) {
+  const L = [];
+  for (const l of w.blights || []) L.push({ p: l.o.slice(), r: l.r, c: l.c.slice() });
+  if (w.ents) L.push(...entLights(w.ents, !!w.q3));
+  if (w.surfL && w.surfL.length) L.push(...clusterSurf(w.surfL));
+  w.plights = L;
+  let sd = w.sunDef || null;
+  const q3s = w.skyQ3 && w.skyQ3.q3map && (w.skyQ3.q3map.sun || w.skyQ3.q3map.sunext);
+  if (q3s) { const n = q3s.map(Number); let c = n.slice(0, 3); if (Math.max(...c) > 1.01) c = c.map(x => x / 255); sd = { yaw: n[4] || 0, elev: n[5] || 45, c: lightCol(c).map(x => x * Math.min(1.3, Math.max(.45, (n[3] || 100) / 140))) }; }
+  else if (!sd && w.sky && w.sky.length) sd = { yaw: 40, elev: 55, c: [.95, .9, .8] };
+  w.sun = sd ? { d: (() => { const y = sd.yaw * Math.PI / 180, e = sd.elev * Math.PI / 180; return [Math.cos(e) * Math.cos(y), Math.cos(e) * Math.sin(y), Math.sin(e)]; })(), c: sd.c } : null;
+}
+// the sun: a 2048² depth map over the 3600 units around you, refreshed every frame; characters use last frame's pose
+const SMN = 2048, SMR = 1800, SMD = 6000; let SM = null, capPrevN = 0;
+const sdP = gl && prog(gl, H + `in vec3 aPos;uniform mat4 uSVP;uniform vec3 uOff;void main(){gl_Position=uSVP*vec4(aPos+uOff,1.);}`, H + `out vec4 o;void main(){o=vec4(0.);}`, ['aPos']);
+function smInit() {
+  const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D, t); gl.texStorage2D(gl.TEXTURE_2D, 1, gl.DEPTH_COMPONENT24, SMN, SMN);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_MODE, gl.COMPARE_REF_TO_TEXTURE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_FUNC, gl.LEQUAL);
+  gl.bindTexture(gl.TEXTURE_2D, null); gl.activeTexture(gl.TEXTURE0);
+  const fb = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fb); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, t, 0); gl.drawBuffers([gl.NONE]); gl.readBuffer(gl.NONE); gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  const vao = gl.createVertexArray(); gl.bindVertexArray(vao); gl.bindBuffer(gl.ARRAY_BUFFER, svCap); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 12, 0); gl.bindVertexArray(null);
+  SM = { t, fb, vao, vp: new Float32Array(16) };
+}
+function renderSunMap(eye, W, H) {
+  if (!svVao) svInit(); if (!SM) smInit();
+  const d = SUNL.d, f = [-d[0], -d[1], -d[2]], up = Math.abs(f[2]) > .95 ? [1, 0, 0] : [0, 0, 1], r = nrm(Q.cross(f, up)), u = Q.cross(r, f);
+  const tx = 2 * SMR / SMN, cx = Math.round(Q.dot(eye, r) / tx) * tx, cy = Math.round(Q.dot(eye, u) / tx) * tx, cz = Q.dot(eye, f);
+  SM.vp.set([r[0] / SMR, u[0] / SMR, f[0] / SMD, 0, r[1] / SMR, u[1] / SMR, f[1] / SMD, 0, r[2] / SMR, u[2] / SMR, f[2] / SMD, 0, -cx / SMR, -cy / SMR, -cz / SMD, 1]);
+  gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D, null); gl.activeTexture(gl.TEXTURE0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, SM.fb); gl.viewport(0, 0, SMN, SMN); gl.enable(gl.DEPTH_TEST); gl.depthMask(true); gl.depthFunc(gl.LESS); gl.clear(gl.DEPTH_BUFFER_BIT);
+  gl.colorMask(false, false, false, false); gl.disable(gl.BLEND); gl.disable(gl.CULL_FACE); gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(1.5, 4);
+  gl.useProgram(sdP.p); gl.uniformMatrix4fv(sdP.u.uSVP, false, SM.vp); gl.bindVertexArray(world.vao); const ms = world.mstate;
+  for (const b of world.opaque) {
+    if (b.nocast) continue; let off = Z3; if (b.model) { const st = ms[b.model]; if (st) { if (!st.visible) continue; off = st.o; } }
+    gl.uniform3fv(sdP.u.uOff, off); gl.drawElements(gl.TRIANGLES, b.count, gl.UNSIGNED_INT, b.start * 4);
+  }
+  if (capPrevN) { gl.uniform3fv(sdP.u.uOff, Z3); gl.bindVertexArray(SM.vao); gl.drawArrays(gl.TRIANGLES, 0, capPrevN * 3); }
+  gl.disable(gl.POLYGON_OFFSET_FILL); gl.colorMask(true, true, true, true); gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, W, H); gl.depthFunc(gl.LEQUAL); gl.bindVertexArray(null);
+  gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D, SM.t); gl.activeTexture(gl.TEXTURE0);
+}
+// models and box-built figures in the full per-pixel mode: dim base light, the eight lights that reach them most, and the shadowed sun
+const MLP = new Float32Array(32), MLC = new Float32Array(24);
+function setModelPix(g, P, M) {
+  if (!(SHL.length || SUNL)) { g.uniform1i(P.u.uSunOn, 0); return false; }
+  g.uniform1i(P.u.uPixL, 2);
+  if (P.pixF !== frameNo) { P.pixF = frameNo; P.mlKey = null; g.uniform1i(P.u.uSunOn, SUNL ? 1 : 0); if (SUNL) { g.uniform3fv(P.u.uSunD, SUNL.d); g.uniform3fv(P.u.uSunC, SUNL.c); g.uniformMatrix4fv(P.u.uSVP, false, SM.vp); g.uniform1i(P.u.uSM, 5); } }
+  const p = [M[12], M[13], M[14]], key = Math.round(p[0] / 40) + ',' + Math.round(p[1] / 40) + ',' + Math.round(p[2] / 40);
+  if (P.mlKey === key) return true; P.mlKey = key;
+  const cand = [];
+  const add = (q, r, c) => { const d = Math.hypot(q[0] - p[0], q[1] - p[1], q[2] - p[2]); if (d < r + 40) cand.push({ q, r, c, s: (1 - d / (r + 40)) * Math.max(c[0], c[1], c[2]) }); };
+  for (const l of SHL) add(l.p, l.r, l.c);
+  for (let i = nDynSh; i < nDL; i++) add([DLP[i * 4], DLP[i * 4 + 1], DLP[i * 4 + 2]], DLP[i * 4 + 3], [DLC[i * 3], DLC[i * 3 + 1], DLC[i * 3 + 2]]);
+  cand.sort((a, b) => b.s - a.s); const n = Math.min(8, cand.length);
+  for (let i = 0; i < n; i++) { MLP.set([...cand[i].q, cand[i].r], i * 4); MLC.set(cand[i].c, i * 3); }
+  g.uniform4fv(P.u['uDL[0]'], MLP); g.uniform3fv(P.u['uDLC[0]'], MLC); g.uniform1i(P.u.uNDL, n);
+  return true;
 }
 function setDL0(k) { gl.useProgram(shP.p); gl.uniform1i(shP.u.uDL0, k); gl.useProgram(worldP.p); gl.uniform1i(worldP.u.uDL0, k); }
-function capAt(p, r = 64) { SHCAP = false; if (!SHL.length || !p) return; for (const L of SHL) if (Math.hypot(p[0] - L.p[0], p[1] - L.p[1], p[2] - L.p[2]) < L.r + r) { SHCAP = true; return; } }
+function capAt(p, r = 64) { SHCAP = false; if (!p) return; if (SUNL && Math.hypot(p[0] - curEye[0], p[1] - curEye[1]) < SMR * 1.3) { SHCAP = true; return; } if (!SHL.length) return; for (const L of SHL) if (Math.hypot(p[0] - L.p[0], p[1] - L.p[1], p[2] - L.p[2]) < L.r + r) { SHCAP = true; return; } }
 function capTris(P, idx, n, M) { // world-space triangles of whatever was just drawn (P: xyz + normal per vertex)
   const nt = (n / 3) | 0; let need = capBuf.n + nt * 9;
   if (need > 1 << 22) return;
@@ -3420,11 +3550,11 @@ function capTris(P, idx, n, M) { // world-space triangles of whatever was just d
   }
   capBuf.n = o;
 }
+function castOK(g) { return g.kind === 'opaque' && !g.alphaTest && !g.liquid && !g.warp && !g.nocast && !(g.rt && (g.rt.deforms.length || g.rt.stages.some(st => st.aFunc) || g.rt.sort > 6)); }
 function buildWorldCasters(G) {
   if (!gl) return null; const out = [], groups = new Map();
   for (const g of G.values()) {
-    if (g.kind !== 'opaque' || g.alphaTest || g.liquid || g.warp || !g.i || !g.i.length) continue;
-    if (g.rt && (g.rt.deforms.length || g.rt.stages.some(st => st.aFunc) || g.rt.sort > 6)) continue;
+    if (!castOK(g) || !g.i || !g.i.length) continue;
     const V = g.v, I = g.i;
     for (let k = 0; k + 2 < I.length; k += 3) {
       const a = I[k] * 8, b = I[k + 1] * 8, c = I[k + 2] * 8;
@@ -3448,12 +3578,15 @@ gl_Position=aK.y>.5?uMVP*vec4(d,0.):uMVP*vec4(p+d*.6,1.);}`, H + `out vec4 o;voi
 const litP = gl && prog(gl, H + `in vec3 aPos;in vec2 aUV;in vec2 aLM;in float aL;in vec3 aN;uniform mat4 uMVP;uniform vec3 uOff;out vec2 vUV;out vec3 vW;out vec3 vN;
 invariant gl_Position;
 void main(){vW=aPos+uOff;gl_Position=uMVP*vec4(vW,1.);vUV=aUV;vN=aN;}`,
-  H + `in vec2 vUV;in vec3 vW;in vec3 vN;uniform sampler2D uTex;uniform vec4 uL;uniform vec3 uLC;uniform vec3 uEye;uniform int uUseN;uniform vec2 uScroll;uniform float uTime;uniform float uAT;out vec4 o;
+  H + `in vec2 vUV;in vec3 vW;in vec3 vN;uniform sampler2D uTex;uniform vec4 uL;uniform vec3 uLC;uniform vec3 uEye;uniform int uUseN;uniform vec2 uScroll;uniform float uTime;uniform float uAT;uniform int uKind;uniform vec4 uSpot;uniform highp sampler2DShadow uSM;uniform mat4 uSVP;out vec4 o;
+float sunVis(vec3 w){vec4 s=uSVP*vec4(w,1.);vec3 q=s.xyz*.5+.5;if(q.x<0.||q.y<0.||q.x>1.||q.y>1.||q.z>1.)return 1.;float t=1./2048.,v=0.;for(int i=-1;i<=1;i++)for(int j=-1;j<=1;j++)v+=texture(uSM,vec3(q.xy+vec2(i,j)*t,q.z-.0003));return v/9.;}
 void main(){vec4 tx=texture(uTex,vUV+uScroll*uTime);if(uAT>0.&&tx.a<uAT)discard;
 vec3 V=normalize(uEye-vW);vec3 N=(uUseN==1&&dot(vN,vN)>.25)?normalize(vN):normalize(cross(dFdx(vW),dFdy(vW)));if(dot(N,V)<0.)N=-N;
-vec3 L=uL.xyz-vW;float d=length(L);L/=max(d,1e-3);float at=clamp(1.-d/uL.w,0.,1.);float nl=max(dot(N,L),0.);if(at<=0.||nl<=0.)discard;
+vec3 L;float at;if(uKind==2){L=uL.xyz;at=1.;}else{L=uL.xyz-vW;float d=length(L);L/=max(d,1e-3);at=clamp(1.-d/uL.w,0.,1.);if(uSpot.w>-1.5)at*=smoothstep(uSpot.w,mix(uSpot.w,1.,.25),dot(-L,uSpot.xyz));}
+float nl=max(dot(N,L),0.);if(at<=0.||nl<=0.)discard;if(uKind==2){at*=sunVis(vW+N*2.);if(at<=0.)discard;}
 vec3 R=reflect(-L,N);float lum=dot(tx.rgb,vec3(.3,.59,.11));float sp=pow(max(dot(R,V),0.),24.)*(.25+.55*lum);
 o=vec4(uLC*at*(tx.rgb*nl*1.45+sp*nl),1.);}`, ['aPos', 'aUV', 'aLM', 'aL', 'aN']);
+if (gl) { for (const P of [solidP, litP]) { gl.useProgram(P.p); gl.uniform1i(P.u.uSM, 5); } gl.useProgram(solidP.p); gl.uniform1i(solidP.u.uSunOn, 0); for (const P of [worldP, shP]) { gl.useProgram(P.p); gl.uniform1f(P.u.uAmbK, 1); } gl.useProgram(null); }
 let svVao = null, svCap = null;
 function svInit() {
   svVao = gl.createVertexArray(); gl.bindVertexArray(svVao);
@@ -3484,14 +3617,16 @@ function rtDiffuse(rt) { // the picture a Quake III surface shows under its ligh
   return (rt.diff = st ? { tex: st.tex[0], cut: st.aFunc ? .5 : 0 } : null);
 }
 function shadowPasses(vp, eye, W, H) {
-  if (!SHL.length || !world) return;
+  if ((!SHL.length && !SUNL) || !world) return;
   if (!svVao) svInit();
-  const capN = capBuf.n / 9 | 0, ms = world.mstate;
+  const capN = capBuf.n / 9 | 0, ms = world.mstate; capPrevN = capN;
   if (capN) { gl.bindBuffer(gl.ARRAY_BUFFER, svCap); gl.bufferData(gl.ARRAY_BUFFER, capBuf.a.subarray(0, capN * 9), gl.STREAM_DRAW); }
   gl.enable(gl.STENCIL_TEST); gl.enable(gl.SCISSOR_TEST); gl.disable(gl.CULL_FACE); gl.depthMask(false); gl.clearStencil(0);
-  for (const L of SHL) {
-    const rc = lightRect(vp, L, W, H); if (!rc) continue;
+  const passes = SUNL ? [...SHL, { sun: true, p: SUNL.d, r: -1, c: SUNL.c }] : SHL;
+  for (const L of passes) {
+    const rc = L.sun ? [0, 0, W, H] : lightRect(vp, L, W, H); if (!rc) continue;
     gl.scissor(rc[0], rc[1], rc[2], rc[3]); gl.clear(gl.STENCIL_BUFFER_BIT);
+    if (!L.sun) {
     gl.colorMask(false, false, false, false); gl.disable(gl.BLEND); gl.depthFunc(gl.LESS); gl.stencilFunc(gl.ALWAYS, 0, 255);
     gl.stencilOpSeparate(gl.BACK, gl.KEEP, gl.INCR_WRAP, gl.KEEP); gl.stencilOpSeparate(gl.FRONT, gl.KEEP, gl.DECR_WRAP, gl.KEEP);
     gl.useProgram(svP.p); gl.uniformMatrix4fv(svP.u.uMVP, false, vp); gl.uniform4f(svP.u.uL, L.p[0], L.p[1], L.p[2], L.r); gl.bindVertexArray(svVao);
@@ -3502,14 +3637,16 @@ function shadowPasses(vp, eye, W, H) {
       gl.uniform3fv(svP.u.uOff, off); svBind(world.shadow.buf, g.start); gl.drawArraysInstanced(gl.TRIANGLES, 0, 24, g.count);
     }
     if (capN) { gl.uniform3fv(svP.u.uOff, Z3); svBind(svCap, 0); gl.drawArraysInstanced(gl.TRIANGLES, 0, 24, capN); }
+    }
     gl.colorMask(true, true, true, true); gl.stencilFunc(gl.EQUAL, 0, 255); gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
     gl.depthFunc(gl.LEQUAL); gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
     gl.useProgram(litP.p); const u = litP.u;
     gl.uniformMatrix4fv(u.uMVP, false, vp); gl.uniform4f(u.uL, L.p[0], L.p[1], L.p[2], L.r); gl.uniform3fv(u.uLC, L.c); gl.uniform3fv(u.uEye, eye);
+    gl.uniform1i(u.uKind, L.sun ? 2 : 0); gl.uniform4fv(u.uSpot, L.spot || [0, 0, 0, -2]); gl.uniform1i(u.uSM, 5); if (L.sun) gl.uniformMatrix4fv(u.uSVP, false, SM.vp);
     gl.uniform1i(u.uUseN, world.hasN ? 1 : 0); gl.uniform1f(u.uTime, realTime / 1000); gl.uniform1i(u.uTex, 0); gl.activeTexture(gl.TEXTURE0);
     gl.bindVertexArray(world.vao);
     for (const b of world.opaque) {
-      if (b.liquid || b.warp) continue;
+      if (b.liquid || b.warp || b.emit) continue;
       let off = Z3; if (b.model) { const st = ms[b.model]; if (st) { if (!st.visible) continue; off = st.o; } }
       let tex = b.anim ? b.anim[Math.floor(realTime / 1000 * b.animFps) % b.anim.length] : b.tex, cut = b.alphaTest ? .5 : 0;
       if (b.rt) { const d = rtDiffuse(b.rt); if (!d) continue; tex = d.tex; cut = d.cut; }
@@ -3669,7 +3806,7 @@ function render(alpha, dt) {
   const view = viewMat(eye, f, r, u), vp = mul(perspInf(fovy, aspect, 4), view);
   const time = realTime / 1000;
   updateListener(eye, f, u); hurtA *= Math.exp(-dt * 2.2);
-  gatherLights(eye); glows.length = 0; curEye = eye; pickShadowLights(); capBuf.n = 0;
+  gatherLights(eye); glows.length = 0; curEye = eye; frameNo++; pickShadowLights(eye, vp, W2, Hh, dt); capBuf.n = 0; if (SUNL) renderSunMap(eye, W2, Hh);
   // sky
   gl.disable(gl.DEPTH_TEST); gl.depthMask(false); gl.disable(gl.CULL_FACE);
   gl.useProgram(skyP.p); gl.uniformMatrix4fv(skyP.u.uMVP, false, vp); gl.uniform3fv(skyP.u.uEye, eye); gl.uniform1f(skyP.u.uTime, time);
@@ -3685,11 +3822,11 @@ function render(alpha, dt) {
   gl.bindVertexArray(world.vao);
   if (world.sky.length) { gl.uniform1f(skyP.u.uScale, 1); for (const b of world.sky) { const s = b.model && world.mstate[b.model]; if (s && !s.visible) continue; gl.uniform3fv(skyP.u.uOff, s ? s.o : Z3); gl.drawElements(gl.TRIANGLES, b.count, gl.UNSIGNED_INT, b.start * 4); } }
   gl.useProgram(worldP.p); gl.uniformMatrix4fv(worldP.u.uMVP, false, vp); gl.uniform1f(worldP.u.uBright, S.bright); gl.uniform1f(worldP.u.uTime, time);
-  gl.uniform4fv(worldP.u['uDL[0]'], DLP); gl.uniform3fv(worldP.u['uDLC[0]'], DLC); gl.uniform1i(worldP.u.uNDL, nDL); gl.uniform1i(worldP.u.uLMode, LMODE()); gl.uniform1i(worldP.u.uDL0, SHL.length); gl.uniform3fv(worldP.u.uEye, eye);
+  gl.uniform4fv(worldP.u['uDL[0]'], DLP); gl.uniform3fv(worldP.u['uDLC[0]'], DLC); gl.uniform1i(worldP.u.uNDL, nDL); gl.uniform1i(worldP.u.uLMode, LMODE()); gl.uniform1i(worldP.u.uDL0, nDynSh); gl.uniform3fv(worldP.u.uEye, eye);
   gl.uniform1i(worldP.u.uTex, 0); gl.uniform1i(worldP.u.uLMap, 1); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, world.lmTex);
   camAxes = { r, u }; curFog = null; if (world.fogs) for (const fg of world.fogs) if ([0, 1, 2].every(k => eye[k] >= fg.mins[k] && eye[k] <= fg.maxs[k])) { curFog = fg; break; }
   gl.useProgram(shP.p); gl.uniformMatrix4fv(shP.u.uMVP, false, vp); gl.uniform1f(shP.u.uBright, S.bright); gl.uniform1f(shP.u.uTime, realTime / 1000); gl.uniform3fv(shP.u.uEye, eye);
-  gl.uniform4fv(shP.u['uDL[0]'], DLP); gl.uniform3fv(shP.u['uDLC[0]'], DLC); gl.uniform1i(shP.u.uNDL, nDL); gl.uniform1i(shP.u.uLMode, LMODE()); gl.uniform1i(shP.u.uDL0, SHL.length); gl.uniform1i(shP.u.uTex, 0); gl.uniform1i(shP.u.uLMap, 1);
+  gl.uniform4fv(shP.u['uDL[0]'], DLP); gl.uniform3fv(shP.u['uDLC[0]'], DLC); gl.uniform1i(shP.u.uNDL, nDL); gl.uniform1i(shP.u.uLMode, LMODE()); gl.uniform1i(shP.u.uDL0, nDynSh); gl.uniform1i(shP.u.uTex, 0); gl.uniform1i(shP.u.uLMap, 1);
   if (curFog) { gl.uniform3fv(shP.u.uFogC, curFog.color); gl.uniform1f(shP.u.uFogD, 1 / Math.max(1, curFog.dist)); }
   gl.useProgram(worldP.p);
   drawBatches(world.opaque, false);
@@ -3781,7 +3918,7 @@ function render(alpha, dt) {
       const cw = curW(), d = curSet()[cw.cur], vproj = perspective(fovy, aspect, 1, 200), drop = cw.state === 'dropping' || cw.state === 'activating' || cw.state === 'raising' ? -6 : 0;
       const gx = 7.5 + bx, gy = -8 + by + drop, gz = kick - 5, len = d.grenade ? 3 : S.wset === 'q3' ? [5, 10, 11, 10, 13, 11, 16, 10, 12][cw.cur] || 12 : [8, 12, 11, 10, 11, 10, 13, 11, 16, 12][cw.cur] || 12;
       const c = [...d.col, 1], dark = [d.col[0] * .6, d.col[1] * .6, d.col[2] * .6, 1];
-      solidFrame = realTime; gl.useProgram(solidP.p); gl.uniform3fv(solidP.u.uEye, Z3); gl.uniform1i(solidP.u.uNDL, 0); if (POWS) POWS.eye = Z3; // view space: the eye is the origin
+      solidFrame = realTime; gl.useProgram(solidP.p); gl.uniform3fv(solidP.u.uEye, Z3); gl.uniform1i(solidP.u.uNDL, 0); gl.uniform1i(solidP.u.uPixL, 0); gl.uniform1i(solidP.u.uSunOn, 0); solidVS = true; if (POWS) POWS.eye = Z3; // view space: the eye is the origin
       if (d.grenade) { drawSolid(vproj, sphere, trs(gx, gy + 1, gz - 12, 3, 3, 3.6), [.3, .34, .26, 1]); drawSolid(vproj, cyl, mul(trs(gx, gy + 4, gz - 12, 1, 1, 1), basis(Z3, [0, 1, 0], [1, 0, 0], [0, 0, -1])), [.55, .55, .5, 1]); }
       else { // a built-in gun, shaped like the weapon it is
         const O = [gx + 2.5, gy + 1, gz - 2], k = .62, f = nrm([-.06, .035, -1]), l = nrm(Q.cross([0, 1, 0], f)), u = Q.cross(f, l); // turned a little inward, so you see the gun's side
@@ -3789,7 +3926,7 @@ function render(alpha, dt) {
         if (d.name === 'Lightning Gun') { const tp = [0, 1, 2].map(i => O[i] + f[i] * 20.6 * k), n = clipOf(vproj, tp); vmMuz = { t: realTime, x: n[0], y: n[1], tanV: Math.tan(fovy / 2), aspect }; } else vmMuz = null;
         vmSpin = (vmSpin || 0) + (attackHeld() ? .35 : .02); drawGunShape(GUN_OF[d.name] || 'mg', G, d.col, { spin: vmSpin, time, firing: attackHeld() });
       }
-      solidFrame = -1;
+      solidFrame = -1; solidVS = false;
     }
     powOff();
   }
@@ -4092,7 +4229,7 @@ async function buildQ3World(path, progress) {
   }
   const lmuv = (p, u, v) => { if (p < 0 || p >= nl) p = nl, u = v = .5; return [((p % cols) * cell + 1 + u * 128) / size, (Math.floor(p / cols) * cell + 1 + v * 128) / size]; };
   const modelEnt = {}; for (const e of ents) if (e.model && e.model[0] === '*') modelEnt[+e.model.slice(1)] = e;
-  const G = new Map(); let skyDef = null, nf = 0;
+  const G = new Map(), surfL3 = [], norm3 = p => String(p).toLowerCase().replace(/\\/g, '/'); let skyDef = null, nf = 0;
   for (let mi = 0; mi < b.models.length; mi++) {
     const m = b.models[mi], e = modelEnt[mi], cls = mi === 0 ? 'worldspawn' : (e ? e.classname : '');
     if (/^trigger_/.test(cls) || (mi > 0 && !e)) continue;
@@ -4119,7 +4256,9 @@ async function buildQ3World(path, progress) {
       }
       let rt = rtCache.get(sh.name); if (rt === undefined) { rt = await buildRT(def, sh.name, texFor); rtCache.set(sh.name, rt); }
       if (!rt || !rt.stages.length) continue;
-      const g = grp(G, `${mi}|${sh.name}`, { rt, kind: rt.sort > 6 ? 'trans' : 'opaque', model: mi, polyOff: rt.polyOff });
+      const sl = def && def.q3map && def.q3map.surfacelight && +def.q3map.surfacelight[0];
+      if (sl > 0 && rt.sort <= 6) { const P = []; for (const k of idx) P.push(V[k].slice(0, 3)); const li = def.q3map.lightimage && await texFor(norm3(def.q3map.lightimage[0]), false); surfL3.push({ tris: P, v: sl, tex: li ? li.tex : (rtDiffuse(rt) || {}).tex }); }
+      const g = grp(G, `${mi}|${sh.name}`, { emit: sl > 0, rt, kind: rt.sort > 6 ? 'trans' : 'opaque', model: mi, polyOff: rt.polyOff });
       if (rt.auto && V.length === 4 && idx.length === 6) (g.autoQ = g.autoQ || []).push({ at: g.v.length / 8, src: V.map(v => v.slice(0, 5)) });
       addTris(g, V, idx);
     }
@@ -4127,7 +4266,7 @@ async function buildQ3World(path, progress) {
   const w = uploadWorld(G, makeTex(gl, A, size, size, { lightmap: true }));
   w.textures = [...new Set([...texCache.values()].filter(Boolean).map(t => t.tex))];
   w.cm = Q.cmFromQ3(b); w.models = b.models; b.models.forEach((m, i) => m.headnode = w.cm.modelHeads[i]);
-  w.ents = ents; w.staticTriggers = []; w.q3 = true;
+  w.ents = ents; w.staticTriggers = []; w.q3 = true; w.surfL = surfL3; w.skyQ3 = skyDef;
   const ws = ents.find(e => e.classname === 'worldspawn') || {};
   w.message = ws.message ? ws.message.replace(/\\n/g, ' ') : ''; w.music = ws.music;
   progress('sky…');
@@ -4233,7 +4372,7 @@ function modelUniforms(ctx, vp, M, shade, amb) {
   const g = ctx.g, P = ctx.P; g.useProgram(P.p);
   g.uniformMatrix4fv(P.u.uMVP, false, mul(vp, M)); g.uniformMatrix4fv(P.u.uM, false, M);
   g.uniform1f(P.u.uAmb, amb); g.uniform1f(P.u.uShade, shade); g.uniform4fv(P.u.uPow, POWV); g.uniform1f(P.u.uPowT, realTime / 1000); g.uniform1i(P.u.uPixL, ctx === mainCtx && S.light === 'pixel' ? 1 : 0); g.uniform3fv(P.u.uLDir, [0.4, 0.3, 0.866]); g.uniform1i(P.u.uTex, 0);
-  if (ctx === mainCtx) { g.uniform4fv(P.u['uDL[0]'], DLP); g.uniform3fv(P.u['uDLC[0]'], DLC); g.uniform1i(P.u.uNDL, nDL); } else g.uniform1i(P.u.uNDL, 0);
+  if (ctx === mainCtx) { if (!setModelPix(g, P, M)) { g.uniform4fv(P.u['uDL[0]'], DLP); g.uniform3fv(P.u['uDLC[0]'], DLC); g.uniform1i(P.u.uNDL, nDL); } } else { g.uniform1i(P.u.uNDL, 0); g.uniform1i(P.u.uSunOn, 0); }
 }
 function md3Draw(ctx, inst, texs, fa, fb, t, vp, M, shade = 1, amb = .5, raw) {
   const g = ctx.g; modelUniforms(ctx, vp, M, shade, amb);
