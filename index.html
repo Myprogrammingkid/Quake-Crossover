@@ -1791,11 +1791,17 @@ function lgTex(style) {
   return e;
 }
 function resetLgTex() { for (const k of Object.keys(LG_TEX)) if (k !== 'builtin') delete LG_TEX[k]; } // new paks loaded: look for the pictures again
+let vmMuz = null; // where the first-person gun's barrel sits on screen (normalised device coordinates), set while the viewmodel is drawn
+const clipOf = (m, p) => { const w = m[3] * p[0] + m[7] * p[1] + m[11] * p[2] + m[15]; return [(m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12]) / w, (m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13]) / w]; };
 function lgBeamSeg() { // where the bolt runs this frame: from the gun's barrel to whatever the shot hits
   if (S.wset !== 'q3' || PL.dead || !W3.lgOn || !attackHeld() || W3.state !== 'ready' || (Q3W[W3.cur] || {}).name !== 'Lightning Gun') return null;
   const { f, r, u } = aimVectors(), o = ps.origin.map(v => v / 8), eye = [o[0], o[1], o[2] + pm.viewheight];
   const t = Q.trace(q3Muzzle(), Z3, Z3, eye.map((v, i) => v + f[i] * 768), Q.MASK_SHOT);
-  const s = S.third ? eye.map((v, i) => v + f[i] * 18 + r[i] * 8 - u[i] * 12) : eye.map((v, i) => v + f[i] * 20 + r[i] * 5.5 - u[i] * 5);
+  let s = S.third ? eye.map((v, i) => v + f[i] * 18 + r[i] * 8 - u[i] * 12) : eye.map((v, i) => v + f[i] * 20 + r[i] * 5.5 - u[i] * 5);
+  if (!S.third && vmMuz && realTime - vmMuz.t < 120) { // start the bolt where the viewmodel's barrel is on screen, whatever the screen shape or fov
+    const d = 16, th = vmMuz.tanV, tw = th * vmMuz.aspect;
+    s = eye.map((v, i) => v + (f[i] + r[i] * vmMuz.x * tw + u[i] * vmMuz.y * th) * d);
+  }
   return { a: s, b: t.endpos };
 }
 function drawLgBeam(vp) {
@@ -2866,8 +2872,8 @@ async function changeLevel(str) {
   if (!parts.length) { toast('Unit complete — that is the end of this campaign path.', 5000); return; }
   const [name, spot] = parts[parts.length - 1].split('$'), path = 'maps/' + name.toLowerCase() + '.bsp';
   if (!VFS.has(path)) { toast(`Next map "${name}" isn't in the loaded paks`, 4000); return; }
-  changing = true; toast('Loading ' + name + '…', 8000);
-  await loadMap(path, spot || '', true);
+  changing = true; toast('Loading ' + name + '…', 8000); BOT.carryNext = true;
+  try { await loadMap(path, spot || '', true); } finally { BOT.carryNext = false; }
   changing = false;
 }
 
@@ -2883,7 +2889,9 @@ function shiftClocks(d) {
 }
 function setWorld(w, spot) {
   if (world && !world.builtin) freeWorld(world);
-  BOT.on = false; BOT.bots = [];
+  // moving on in co-op: the squad comes along with the health, armour, weapon and powerups they had
+  const carry = BOT.carryNext && BOT.on && BOT.mode === 'coop' && BOT.bots.length && !BOT.pending && !SAVE.pending ? BOT.bots.map(b => ({ id: { name: b.name, set: b.set, model: b.model, skin: b.skin }, hp: b.dead ? 100 : Math.max(1, b.health), max: b.maxHealth || 100, armor: b.dead ? 0 : b.armorB || 0, wpn: b.wpn || 0, hue: b.hue, frags: b.frags || 0, deaths: b.deaths || 0, quad: Math.max(0, (b.quad || 0) - simTime), inv: Math.max(0, (b.inv || 0) - simTime) })) : null;
+  BOT.carryNext = false; BOT.on = false; BOT.bots = [];
   world = w; Q.setCM(w.cm); clearFx(); shiftClocks(simTime); simTime = 0; stopSpeakers();
   initEntities(w);
   preloadWorldSounds();
@@ -2893,6 +2901,7 @@ function setWorld(w, spot) {
   let idx = 0; if (spot) { const i = w.spawns.findIndex(s => s.name === spot); if (i >= 0) idx = i; }
   spawnIdx = idx; respawn(idx);
   if (BOT.pending) { const n = BOT.pending - 1; BOT.pending = 0; beginBotMatch(n); }
+  else if (carry) resumeCoop(carry);
   SAVE.lastAuto = 0; hideDeathMenu();
   if (SAVE.pending) { const s = SAVE.pending; SAVE.pending = null; applySnap(s); } else if (!isDM()) autosave('Level start');
 }
@@ -4112,6 +4121,13 @@ function spawnBot() {
   Object.assign(e, { bot: true, ally: BOT.mode === 'coop', name: id.name, set: id.set, model: id.model, skin: id.skin, hue: BOT.bots.length, frags: 0, deaths: 0, fireT: 0, wpn: 0, burst: 0, yaw: sp.yaw, ryaw: sp.yaw, enemy: true });
   BOT.bots.push(e); loadBotModel(e); return e;
 }
+function resumeCoop(carry) {
+  BOT.on = true; BOT.over = false; BOT.startT = simTime; BOT.lastShooter = null; BOT.frags = BOT.deaths = 0; BOT.roster = carry.map(c => c.id);
+  for (const c of carry) {
+    const e = spawnBot(); Object.assign(e, { health: c.hp, maxHealth: c.max, armorB: c.armor, wpn: c.wpn, hue: c.hue === undefined ? e.hue : c.hue, frags: c.frags, deaths: c.deaths, quad: c.quad ? simTime + c.quad : 0, inv: c.inv ? simTime + c.inv : 0 });
+  }
+  toast(`${BOT.bots.map(b => b.name).join(', ')} come along with you.`, 3500);
+}
 function coopSpot() { // somewhere near the player on open floor
   const c = ps.origin.map(v => v / 8);
   for (let k = 0; k < 24; k++) {
@@ -4941,7 +4957,8 @@ function render(alpha, dt) {
       const g = q3GunBasis(head, dt), go = [0, 1, 2].map(i => g.o[i] - (handFire ? 0 : g.f[i] * kick * .5) + g.u[i] * drop);
       let M = basis(go, g.f, g.l, g.u);
       M = mul(M, H ? tagMat(H, 'tag_weapon', Math.min(hf[0], n - 1), Math.min(hf[1], n - 1), hf[2]) : trs(8, -6, -7, 1, 1, 1));
-      drawQ3Weapon(mainCtx, W3.cur, M, mul(q3GunProj(W2, Hh), view), shade, true);
+      const gvp3 = mul(q3GunProj(W2, Hh), view); drawQ3Weapon(mainCtx, W3.cur, M, gvp3, shade, true);
+      if (V.w.m && V.w.m.tags && V.w.m.tags.tag_flash) { const T = mul(M, tagMat(V.w.m, 'tag_flash', 0, 0, 0)), n = clipOf(gvp3, [T[12], T[13], T[14]]); vmMuz = { t: realTime, x: n[0], y: n[1], tanV: Math.tan(fovy / 2), aspect }; } else vmMuz = null;
     } else if (vmod) {
       const gfov = 2 * Math.atan(Math.tan(Math.min(S.fov, 90) * Math.PI / 360) * 0.75), gvp = mul(perspective(gfov, aspect, 1, 400), view);
       const go = [0, 1, 2].map(i => head[i] - f[i] * kick * 0.6 + r[i] * bx + u[i] * by);
@@ -4956,6 +4973,7 @@ function render(alpha, dt) {
       else { // a built-in gun, shaped like the weapon it is
         const O = [gx + 2.5, gy + 1, gz - 2], k = .62, f = nrm([-.06, .035, -1]), l = nrm(Q.cross([0, 1, 0], f)), u = Q.cross(f, l); // turned a little inward, so you see the gun's side
         const G = (fw, lf, up, sf, sl, su, col, mesh = rbox, lit = 1) => drawSolid(vproj, mesh, mul(basis([0, 1, 2].map(i => O[i] + (f[i] * fw + l[i] * lf + u[i] * up) * k), f, l, u), trs(0, 0, 0, sf * k, sl * k, su * k)), col, lit);
+        if (d.name === 'Lightning Gun') { const tp = [0, 1, 2].map(i => O[i] + f[i] * 20.6 * k), n = clipOf(vproj, tp); vmMuz = { t: realTime, x: n[0], y: n[1], tanV: Math.tan(fovy / 2), aspect }; } else vmMuz = null;
         vmSpin = (vmSpin || 0) + (attackHeld() ? .35 : .02); drawGunShape(GUN_OF[d.name] || 'mg', G, d.col, { spin: vmSpin, time, firing: attackHeld() });
       }
       solidFrame = -1;
