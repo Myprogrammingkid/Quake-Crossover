@@ -245,7 +245,9 @@ function cmFromBrushes(brushes) {
     }
   });
   const lb = new Int32Array(nb); for (let i = 0; i < nb; i++) lb[i] = i;
-  return {
+  const bb = new Float32Array(nb * 6); // each brush's bounds: traces skip brushes their sweep can't touch
+  brushes.forEach((br, i) => { const lo = [1e9, 1e9, 1e9], hi = [-1e9, -1e9, -1e9]; for (const f of brushFaces(br.planes)) for (const p of f.w) for (let c = 0; c < 3; c++) { lo[c] = Math.min(lo[c], p[c]); hi[c] = Math.max(hi[c], p[c]); } for (let c = 0; c < 3; c++) { bb[i * 6 + c] = lo[c] - 1; bb[i * 6 + 3 + c] = hi[c] + 1; } });
+  return { bb,
     demo: true, pn, pd, pt, nodePlane: new Int32Array(0), nodeC0: new Int32Array(0), nodeC1: new Int32Array(0),
     leafContents: Int32Array.of(all), leafFirstBrush: Int32Array.of(0), leafNumBrush: Int32Array.of(nb), leafBrushes: lb,
     brushFirstSide: bfs, brushNumSides: bns, brushContents: bc, sidePlane: sp, sideFlags: new Int32Array(np),
@@ -254,7 +256,7 @@ function cmFromBrushes(brushes) {
 }
 
 const DIST_EPSILON = 0.03125;
-const tS = [0, 0, 0], tE = [0, 0, 0], tMin = [0, 0, 0], tMax = [0, 0, 0], tExt = [0, 0, 0];
+const tLo = [0, 0, 0], tHi = [0, 0, 0], tS = [0, 0, 0], tE = [0, 0, 0], tMin = [0, 0, 0], tMax = [0, 0, 0], tExt = [0, 0, 0];
 let tPoint = false, tMask = 0, tCount = 0, TR = null;
 function newTrace() { return { fraction: 1, allsolid: false, startsolid: false, normal: [0, 0, 0], dist: 0, contents: 0, surf: 0, endpos: [0, 0, 0] }; }
 
@@ -303,6 +305,7 @@ function leafBrushLoop(leaf, fn, stopAllSolid) {
     const b = cm.leafBrushes[f + k];
     if (cm.checkcount[b] === tCount) continue; cm.checkcount[b] = tCount;
     if (!(cm.brushContents[b] & tMask)) continue;
+    if (cm.bb) { const o = b * 6, B = cm.bb; if (tLo[0] > B[o + 3] || tHi[0] < B[o] || tLo[1] > B[o + 4] || tHi[1] < B[o + 1] || tLo[2] > B[o + 5] || tHi[2] < B[o + 2]) continue; }
     fn(b);
     if (stopAllSolid ? TR.allsolid : !TR.fraction) return;
   }
@@ -350,6 +353,7 @@ function boxTrace(start, end, mins, maxs, mask, head) {
   TR = newTrace(); tCount++; tMask = mask;
   for (let i = 0; i < 3; i++) { tS[i] = start[i]; tE[i] = end[i]; tMin[i] = mins[i]; tMax[i] = maxs[i]; tExt[i] = Math.max(-mins[i], maxs[i]); }
   tPoint = !(mins[0] || mins[1] || mins[2] || maxs[0] || maxs[1] || maxs[2]);
+  for (let i = 0; i < 3; i++) { tLo[i] = Math.min(start[i], end[i]) + mins[i] - 1; tHi[i] = Math.max(start[i], end[i]) + maxs[i] + 1; }
   if (start[0] === end[0] && start[1] === end[1] && start[2] === end[2]) {
     const list = [];
     boxLeafnums([start[0] + mins[0] - 1, start[1] + mins[1] - 1, start[2] + mins[2] - 1], [start[0] + maxs[0] + 1, start[1] + maxs[1] + 1, start[2] + maxs[2] + 1], head, list);
@@ -418,6 +422,7 @@ function pointContents(p) {
   if (cm.demo) {
     let c = 0;
     for (let b = 0; b < cm.brushContents.length; b++) {
+      if (cm.bb) { const o = b * 6, B = cm.bb; if (p[0] < B[o] || p[0] > B[o + 3] || p[1] < B[o + 1] || p[1] > B[o + 4] || p[2] < B[o + 2] || p[2] > B[o + 5]) continue; }
       const fs = cm.brushFirstSide[b], ns = cm.brushNumSides[b]; let inside = true;
       for (let i = 0; i < ns; i++) { const pl = cm.sidePlane[fs + i]; if (p[0] * cm.pn[pl * 3] + p[1] * cm.pn[pl * 3 + 1] + p[2] * cm.pn[pl * 3 + 2] - cm.pd[pl] > 0) { inside = false; break; } }
       if (inside) c |= cm.brushContents[b];

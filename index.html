@@ -281,7 +281,8 @@ body.touch #info{left:112px}
       <div class="sec">
         <div class="row">
           <button id="campaign" class="primary" hidden>▶ Start campaign</button>
-          <button id="playDemo" class="primary">▶ Play test map</button>
+          <button id="playKappa" class="primary">▶ Built-in campaign: Outpost Kappa</button>
+          <button id="playDemo" class="">▶ Play test map</button>
         </div>
       </div>
     <div class="sec" id="mapsBox" hidden>
@@ -656,7 +657,9 @@ function cmFromBrushes(brushes) {
     }
   });
   const lb = new Int32Array(nb); for (let i = 0; i < nb; i++) lb[i] = i;
-  return {
+  const bb = new Float32Array(nb * 6); // each brush's bounds: traces skip brushes their sweep can't touch
+  brushes.forEach((br, i) => { const lo = [1e9, 1e9, 1e9], hi = [-1e9, -1e9, -1e9]; for (const f of brushFaces(br.planes)) for (const p of f.w) for (let c = 0; c < 3; c++) { lo[c] = Math.min(lo[c], p[c]); hi[c] = Math.max(hi[c], p[c]); } for (let c = 0; c < 3; c++) { bb[i * 6 + c] = lo[c] - 1; bb[i * 6 + 3 + c] = hi[c] + 1; } });
+  return { bb,
     demo: true, pn, pd, pt, nodePlane: new Int32Array(0), nodeC0: new Int32Array(0), nodeC1: new Int32Array(0),
     leafContents: Int32Array.of(all), leafFirstBrush: Int32Array.of(0), leafNumBrush: Int32Array.of(nb), leafBrushes: lb,
     brushFirstSide: bfs, brushNumSides: bns, brushContents: bc, sidePlane: sp, sideFlags: new Int32Array(np),
@@ -665,7 +668,7 @@ function cmFromBrushes(brushes) {
 }
 
 const DIST_EPSILON = 0.03125;
-const tS = [0, 0, 0], tE = [0, 0, 0], tMin = [0, 0, 0], tMax = [0, 0, 0], tExt = [0, 0, 0];
+const tLo = [0, 0, 0], tHi = [0, 0, 0], tS = [0, 0, 0], tE = [0, 0, 0], tMin = [0, 0, 0], tMax = [0, 0, 0], tExt = [0, 0, 0];
 let tPoint = false, tMask = 0, tCount = 0, TR = null;
 function newTrace() { return { fraction: 1, allsolid: false, startsolid: false, normal: [0, 0, 0], dist: 0, contents: 0, surf: 0, endpos: [0, 0, 0] }; }
 
@@ -714,6 +717,7 @@ function leafBrushLoop(leaf, fn, stopAllSolid) {
     const b = cm.leafBrushes[f + k];
     if (cm.checkcount[b] === tCount) continue; cm.checkcount[b] = tCount;
     if (!(cm.brushContents[b] & tMask)) continue;
+    if (cm.bb) { const o = b * 6, B = cm.bb; if (tLo[0] > B[o + 3] || tHi[0] < B[o] || tLo[1] > B[o + 4] || tHi[1] < B[o + 1] || tLo[2] > B[o + 5] || tHi[2] < B[o + 2]) continue; }
     fn(b);
     if (stopAllSolid ? TR.allsolid : !TR.fraction) return;
   }
@@ -761,6 +765,7 @@ function boxTrace(start, end, mins, maxs, mask, head) {
   TR = newTrace(); tCount++; tMask = mask;
   for (let i = 0; i < 3; i++) { tS[i] = start[i]; tE[i] = end[i]; tMin[i] = mins[i]; tMax[i] = maxs[i]; tExt[i] = Math.max(-mins[i], maxs[i]); }
   tPoint = !(mins[0] || mins[1] || mins[2] || maxs[0] || maxs[1] || maxs[2]);
+  for (let i = 0; i < 3; i++) { tLo[i] = Math.min(start[i], end[i]) + mins[i] - 1; tHi[i] = Math.max(start[i], end[i]) + maxs[i] + 1; }
   if (start[0] === end[0] && start[1] === end[1] && start[2] === end[2]) {
     const list = [];
     boxLeafnums([start[0] + mins[0] - 1, start[1] + mins[1] - 1, start[2] + mins[2] - 1], [start[0] + maxs[0] + 1, start[1] + maxs[1] + 1, start[2] + maxs[2] + 1], head, list);
@@ -829,6 +834,7 @@ function pointContents(p) {
   if (cm.demo) {
     let c = 0;
     for (let b = 0; b < cm.brushContents.length; b++) {
+      if (cm.bb) { const o = b * 6, B = cm.bb; if (p[0] < B[o] || p[0] > B[o + 3] || p[1] < B[o + 1] || p[1] > B[o + 4] || p[2] < B[o + 2] || p[2] > B[o + 5]) continue; }
       const fs = cm.brushFirstSide[b], ns = cm.brushNumSides[b]; let inside = true;
       for (let i = 0; i < ns; i++) { const pl = cm.sidePlane[fs + i]; if (p[0] * cm.pn[pl * 3] + p[1] * cm.pn[pl * 3 + 1] + p[2] * cm.pn[pl * 3 + 2] - cm.pd[pl] > 0) { inside = false; break; } }
       if (inside) c |= cm.brushContents[b];
@@ -1513,8 +1519,11 @@ float z=d.z;vec3 top=vec3(.13,.15,.2),hor=vec3(.52,.38,.27),bot=vec3(.07,.06,.05
 vec3 c=z>0.?mix(hor,top,pow(z,.55)):mix(hor,bot,pow(-z,.4));
 if(z>0.){vec2 uv=d.xy/(z+.18)*1.4+vec2(uTime*.015,uTime*.006);float k=fbm(uv);c=mix(c,vec3(.72,.6,.5),smoothstep(.48,.85,k)*smoothstep(0.,.35,z)*.65);}
 vec3 sd=normalize(vec3(.45,.25,.32));float s=max(dot(d,sd),0.);c+=vec3(1.,.8,.55)*pow(s,300.)*2.+vec3(1.,.55,.3)*pow(s,6.)*.18;o=vec4(c,1.);}`, ['aPos']);
-const solidP = gl && prog(gl, H + `in vec3 aPos;in vec3 aNorm;uniform mat4 uMVP;uniform mat4 uM;out vec3 vN;void main(){vN=mat3(uM)*aNorm;gl_Position=uMVP*vec4(aPos,1.);}`,
-  H + `in vec3 vN;uniform vec4 uColor;uniform float uLit;out vec4 o;void main(){float l=mix(1.,.4+.6*max(dot(normalize(vN),normalize(vec3(.3,.6,.75))),0.),uLit);o=vec4(uColor.rgb*l,uColor.a);}`, ['aPos', 'aNorm']);
+const solidP = gl && prog(gl, H + `in vec3 aPos;in vec3 aNorm;uniform mat4 uMVP;uniform mat4 uM;out vec3 vN;out vec3 vW;void main(){vN=mat3(uM)*aNorm;vW=(uM*vec4(aPos,1.)).xyz;gl_Position=uMVP*vec4(aPos,1.);}`,
+  H + `in vec3 vN;in vec3 vW;uniform vec4 uColor;uniform float uLit;uniform vec3 uEye;uniform vec4 uDL[8];uniform vec3 uDLC[8];uniform int uNDL;out vec4 o;
+void main(){vec3 n=normalize(vN),L=normalize(vec3(.3,.6,.75)),V=normalize(uEye-vW);vec3 s=vec3(0.);for(int i=0;i<8;i++){if(i>=uNDL)break;float d=distance(vW,uDL[i].xyz);s+=uDLC[i]*max(0.,1.-d/uDL[i].w);}
+vec3 hemi=mix(vec3(.26,.25,.25),vec3(.52,.56,.64),n.z*.5+.5);float dif=max(dot(n,L),0.)*.62;float sp=pow(max(dot(reflect(-L,n),V),0.),20.)*.22;float rim=pow(1.-max(dot(n,V),0.),3.)*.22;
+vec3 c=uColor.rgb*(hemi+dif+s+rim)+vec3(sp);o=vec4(mix(uColor.rgb,c,uLit),uColor.a);}`, ['aPos', 'aNorm']);
 const MD2VS = H + `in vec3 aPos;in vec3 aNorm;in vec2 aUV;uniform mat4 uMVP;uniform mat4 uM;out vec2 vUV;out vec3 vN;out vec3 vW;void main(){gl_Position=uMVP*vec4(aPos,1.);vN=mat3(uM)*aNorm;vUV=aUV;vW=(uM*vec4(aPos,1.)).xyz;}`;
 const MD2FS = H + `in vec2 vUV;in vec3 vN;in vec3 vW;uniform vec4 uPow;uniform float uPowT;uniform vec4 uDL[8];uniform vec3 uDLC[8];uniform int uNDL;vec3 dyn(vec3 w){vec3 s=vec3(0.);for(int i=0;i<8;i++){if(i>=uNDL)break;float d=distance(w,uDL[i].xyz);s+=uDLC[i]*max(0.,1.-d/uDL[i].w);}return s;}uniform sampler2D uTex;uniform float uAmb;uniform float uShade;uniform vec3 uLDir;uniform int uEnv;uniform vec3 uEyeM;uniform float uCut;out vec4 o;
 void m1(){vec3 n=normalize(vN);float l=uAmb+(1.-uAmb)*max(dot(n,uLDir),0.);vec2 uv=vUV;if(uEnv==1){vec3 r=reflect(normalize(vW-uEyeM),n);uv=vec2(.5+.5*r.y,.5-.5*r.z);}vec4 tx=texture(uTex,uv);if(uCut>0.&&tx.a<uCut)discard;vec3 t=tx.rgb;if(uEnv==1){o=vec4(t*(.3+.7*l)*uShade*.8,1.);return;}o=vec4(min(t*l*uShade+t*dyn(vW),vec3(1.)),1.);}
@@ -1563,6 +1572,89 @@ function sphereData(seg = 12, ring = 8) {
   return d;
 }
 const cube = gl && meshPN(cubeData()), sphere = gl && meshPN(sphereData());
+// ---------- built-in figures ----------
+// Without model files every character is drawn from rounded parts: a soldier in plates and pads with a glowing visor, or, for the
+// non-humanoid monsters, a hovering drone or a heavy walker. Bones come from the same 16-point skeleton the ragdolls use.
+function rboxData(e = .28, seg = 10) { // a superellipsoid: a box with rounded edges, in [-.5, .5]
+  const d = [], sp = (c, p) => Math.sign(c) * Math.pow(Math.abs(c), p);
+  const P = (i, j) => { const th = i / seg * Math.PI * 2 - Math.PI, ph = j / seg * Math.PI - Math.PI / 2, ct = Math.cos(th), st = Math.sin(th), cp = Math.cos(ph), sn = Math.sin(ph);
+    const p = [sp(cp, e) * sp(ct, e) * .5, sp(cp, e) * sp(st, e) * .5, sp(sn, e) * .5], n = [sp(cp, 2 - e) * sp(ct, 2 - e), sp(cp, 2 - e) * sp(st, 2 - e), sp(sn, 2 - e)], l = Math.hypot(...n) || 1; return [p, n.map(v => v / l)]; };
+  for (let j = 0; j < seg; j++) for (let i = 0; i < seg; i++) { const a = P(i, j), b = P(i + 1, j), c = P(i + 1, j + 1), f = P(i, j + 1); for (const [p, n] of [a, b, c, a, c, f]) d.push(...p, ...n); }
+  return d;
+}
+function cylData(seg = 12) { // a capped cylinder along x in [-.5, .5], radius .5
+  const d = [], ring = i => { const a = i / seg * Math.PI * 2; return [Math.cos(a) * .5, Math.sin(a) * .5]; };
+  for (let i = 0; i < seg; i++) { const [y0, z0] = ring(i), [y1, z1] = ring(i + 1), n0 = [0, y0 * 2, z0 * 2], n1 = [0, y1 * 2, z1 * 2];
+    d.push(-.5, y0, z0, ...n0, .5, y0, z0, ...n0, .5, y1, z1, ...n1, -.5, y0, z0, ...n0, .5, y1, z1, ...n1, -.5, y1, z1, ...n1);
+    d.push(.5, 0, 0, 1, 0, 0, .5, y0, z0, 1, 0, 0, .5, y1, z1, 1, 0, 0, -.5, 0, 0, -1, 0, 0, -.5, y1, z1, -1, 0, 0, -.5, y0, z0, -1, 0, 0); }
+  return d;
+}
+const rbox = gl && meshPN(rboxData()), cyl = gl && meshPN(cylData());
+const FIG = { // looks for the built-in characters; monsters are keyed by their model folder
+  player: { body: [.36, .4, .3], limb: [.24, .27, .22], plate: [.52, .56, .44], boot: [.13, .12, .11], visor: [.35, .9, 1], gun: 'rifle' },
+  soldier: { body: [.55, .48, .32], limb: [.38, .34, .24], plate: [.66, .6, .42], boot: [.16, .13, .1], visor: [1, .35, .2], gun: 'rifle' },
+  infantry: { body: [.28, .36, .26], limb: [.2, .25, .19], plate: [.42, .5, .36], boot: [.12, .12, .1], visor: [1, .6, .15], gun: 'cannon', bulk: 1.15 },
+  gunner: { body: [.38, .38, .42], limb: [.27, .27, .3], plate: [.55, .55, .6], boot: [.14, .14, .16], visor: [1, .25, .2], gun: 'cannon', bulk: 1.25 },
+  berserk: { body: [.45, .3, .22], limb: [.6, .45, .36], plate: [.35, .3, .28], boot: [.15, .1, .08], visor: [1, .2, .1], gun: 'blade', bulk: 1.35 },
+  gladiatr: { body: [.5, .5, .55], limb: [.35, .35, .4], plate: [.7, .7, .78], boot: [.2, .2, .22], visor: [.5, 1, .4], gun: 'rail', bulk: 1.3 },
+  tank: { body: [.36, .4, .24], limb: [.27, .3, .18], plate: [.5, .54, .34], boot: [.16, .16, .12], visor: [1, .3, .15], gun: 'cannon', bulk: 1.5 },
+  default: { body: [.5, .2, .16], limb: [.38, .15, .12], plate: [.62, .28, .22], boot: [.16, .1, .08], visor: [1, .7, .2], gun: 'rifle' }
+};
+const BOT_HUES = [[.6, .16, .14], [.15, .35, .6], [.2, .5, .22], [.55, .4, .12], [.4, .2, .55]];
+function botFig(hue) { const c = BOT_HUES[(hue || 0) % 5]; return { body: c, limb: c.map(v => v * .7), plate: c.map(v => Math.min(1, v * 1.35 + .08)), boot: [.12, .11, .1], visor: [.4, .95, 1], gun: 'rifle' }; }
+const c4 = (c, k = 1) => [c[0] * k, c[1] * k, c[2] * k, 1];
+function drawFigure(vp, P, style, sc = 1, gunOn = true) {
+  const st = style || FIG.player, b = (st.bulk || 1) * sc;
+  const F = ragFrame(P); if (![...F.u, ...F.l, ...F.f].every(Number.isFinite)) return;
+  const at = (o, x, y, z, f = F) => [0, 1, 2].map(c => o[c] + f.f[c] * x + f.l[c] * y + f.u[c] * z);
+  const blk = (o, sx, sy, sz, col, frame = F, lit = 1) => drawSolid(vp, rbox, mul(basis(o, frame.f, frame.l, frame.u), trs(0, 0, 0, sx, sy, sz)), col, lit);
+  const seg = (a, c, r, col) => { const d = sub3(c, a), l = Math.hypot(...d); if (l < .1) return; const x = d.map(v => v / l), up = Math.abs(Q.dot(x, F.u)) < .95 ? F.u : F.f, y = nrm(Q.cross(up, x)), z = Q.cross(x, y);
+    drawSolid(vp, cyl, mul(basis(a.map((v, i) => v + d[i] / 2), x, y, z), trs(0, 0, 0, l, r * 2, r * 2)), col); };
+  const ball = (o, r, col) => drawSolid(vp, sphere, trs(o[0], o[1], o[2], r, r, r), col);
+  const body = c4(st.body), limb = c4(st.limb), plate = c4(st.plate), boot = c4(st.boot), dark = c4(st.limb, .55);
+  // torso: chest, belly, belt, chest plate, backpack, shoulder pads
+  const chest = P[1].map((v, i) => (v * .6 + P[2][i] * .4)), belly = P[2].map((v, i) => (v + P[3][i]) / 2), spine = Math.hypot(...sub3(P[1], P[3]));
+  const TF = { f: F.f, l: F.l, u: nrm(sub3(P[1], P[2])) }; if (!TF.u.every(Number.isFinite)) TF.u = F.u;
+  blk(chest, 9 * b, 15 * b, spine * .55, body, TF); blk(at(chest, 3.6 * b, 0, .5), 3.2 * b, 12 * b, spine * .42, plate, TF);
+  blk(belly, 7.5 * b, 11.5 * b, spine * .42, limb); blk(at(P[3], 0, 0, 1.5), 8.5 * b, 13 * b, 4 * b, dark); blk(at(P[3], 4.2 * b, 0, 1.5), 1.4, 3, 2.6, plate);
+  blk(at(chest, -5.8 * b, 0, .5), 4.5 * b, 10 * b, spine * .45, dark, TF); for (const s of [-1, 1]) blk(at(chest, -6.6 * b, s * 3.2 * b, -spine * .12), 2, 2.2, 2.2, c4(st.visor, .6), TF, 0);
+  for (const s of [4, 7]) { blk(at(P[s], 0, (s === 4 ? 1.2 : -1.2) * b, 1.6 * b), 7.5 * b, 6.5 * b, 4.2 * b, plate); }
+  // arms with gloves, legs with knee pads and boots
+  seg(P[4], P[5], 2.5 * b, limb); seg(P[5], P[6], 2.2 * b, limb); seg(P[7], P[8], 2.5 * b, limb); seg(P[8], P[9], 2.2 * b, limb);
+  for (const i of [5, 8]) ball(P[i], 2.5 * b, limb); for (const i of [6, 9]) ball(P[i], 2.7 * b, dark);
+  seg(P[10], P[11], 3.1 * b, body); seg(P[11], P[12], 2.7 * b, limb); seg(P[13], P[14], 3.1 * b, body); seg(P[14], P[15], 2.7 * b, limb);
+  for (const i of [11, 14]) { ball(P[i], 3 * b, limb); blk(at(P[i], 2.4 * b, 0, 0), 2.2 * b, 4.4 * b, 4.6 * b, plate); }
+  for (const i of [10, 13]) ball(P[i], 3.2 * b, body);
+  const FF = { f: nrm([F.f[0], F.f[1], 0]), l: nrm([F.l[0], F.l[1], 0]), u: [0, 0, 1] }; if (!FF.f.every(Number.isFinite) || !FF.l.every(Number.isFinite)) { FF.f = F.f; FF.l = F.l; FF.u = F.u; }
+  for (const i of [12, 15]) blk(at(P[i], 2.4 * b, 0, -.4, FF), 10 * b, 5.4 * b, 4.6 * b, boot, FF);
+  // neck, helmet, visor
+  seg(P[1], P[0], 2.2 * b, dark);
+  const HF = { f: F.f, l: F.l, u: nrm(sub3(P[0], P[1])) }; if (!HF.u.every(Number.isFinite)) HF.u = F.u;
+  const head = at(P[0], 0, 0, 1);
+  blk(head, 9.5 * b, 9 * b, 9.5 * b, plate, HF); blk(at(head, .3, 0, 3.4 * b, HF), 8 * b, 7.6 * b, 3.2 * b, body, HF);
+  blk(at(head, 4.2 * b, 0, .2, HF), 1.6, 7.4 * b, 2.6 * b, c4(st.visor, 1.25), HF, 0);
+  if (!gunOn || st.gun === 'none') return;
+  // the weapon in the right hand, pointing forward
+  const h = P[9], ax = nrm(sub3(P[9], P[8])), gx = nrm([F.f[0] * .7 + ax[0] * .3, F.f[1] * .7 + ax[1] * .3, F.f[2] * .7 + ax[2] * .3]), gy = nrm(Q.cross(F.u, gx)), gz = Q.cross(gx, gy), GF = { f: gx, l: gy, u: gz };
+  if (!gx.every(Number.isFinite) || !gy.every(Number.isFinite)) return;
+  const g = (x, y, z, sx, sy, sz, col, lit = 1) => blk(at(h, x, y, z, GF), sx, sy, sz, col, GF, lit), gm = [.18, .19, .2, 1], gl2 = [.32, .33, .35, 1];
+  if (st.gun === 'blade') { g(5 * b, 0, 1, 14 * b, 1, 4 * b, [.75, .78, .82, 1]); g(0, 0, 0, 4, 3, 3, gm); return; }
+  if (st.gun === 'cannon') { g(3, 0, 1.5, 13 * b, 5 * b, 5 * b, gm); seg(at(h, 8 * b, 0, 1.5, GF), at(h, 16 * b, 0, 1.5, GF), 1.8 * b, gl2); g(10 * b, 0, 1.5, 1, 3, 3, c4(st.visor), 0); return; }
+  if (st.gun === 'rail') { g(4, 0, 1.5, 16 * b, 3, 3.6, gm); g(4, 0, 3.2, 14 * b, 1.4, 1, c4([.4, 1, .5]), 0); return; }
+  g(3, 0, 1.6, 12, 2.6, 3.4, gm); g(-2.5, 0, 0, 4, 2.2, 4.4, gl2); g(10, 0, 2, 5, 1.4, 1.4, gm); g(3, 0, -1.4, 2.4, 1.8, 3.6, gl2);
+}
+// drones (flyer, floater, hover...) and other non-humanoids: drawn in a frame M at a size
+function drawDrone(vp, M, s, style, t) {
+  const st = style || { body: [.45, .42, .5], plate: [.65, .6, .7], visor: [1, .4, .2] }, B = (x, y, z, sx, sy, sz, col, lit = 1, m = rbox) => drawSolid(vp, m, mul(M, trs(x * s, y * s, z * s, sx * s, sy * s, sz * s)), col, lit);
+  const flap = Math.sin((t || 0) * 18) * .35;
+  B(0, 0, 0, 1, .85, .7, c4(st.body), 1, sphere); B(-.1, 0, .32, .8, .7, .3, c4(st.plate));
+  B(.58, 0, .05, .22, .5, .22, c4(st.visor, 1.3), 0); B(.5, 0, -.35, .45, .18, .18, [.2, .2, .22, 1]);
+  for (const sgn of [-1, 1]) { const W = mul(M, mul(trs(0, sgn * .55 * s, .1 * s, 1, 1, 1), new Float32Array([1, 0, 0, 0, 0, Math.cos(flap * sgn), Math.sin(flap * sgn), 0, 0, -Math.sin(flap * sgn), Math.cos(flap * sgn), 0, 0, 0, 0, 1])));
+    drawSolid(vp, rbox, mul(W, trs(-.1 * s, sgn * .55 * s, 0, .7 * s, 1.1 * s, .08 * s)), c4(st.plate, .85)); }
+  B(-.75, 0, 0, .35, .25, .25, c4(st.body, .7));
+  glows.push({ p: [M[12] + M[0] * .7 * s, M[13] + M[1] * .7 * s, M[14] + M[2] * .7 * s + .05 * s], s: 3 + s * .06, c: [...st.visor, .7] });
+}
+const DRONE = { flyer: { body: [.42, .45, .52], plate: [.62, .66, .74], visor: [1, .45, .2] }, float: { body: [.45, .4, .32], plate: [.65, .58, .45], visor: [.4, 1, .5] }, hover: { body: [.5, .32, .3], plate: [.7, .48, .42], visor: [1, .9, .3] }, flipper: { body: [.3, .45, .5], plate: [.5, .65, .7], visor: [1, .3, .3] } };
 let missingTex = null;
 function getMissing() {
   if (missingTex) return missingTex;
@@ -1797,36 +1889,219 @@ function procTex(kind) {
     case 'pad': fill('#08240f'); for (let y = -8; y < 140; y += 32) { g.strokeStyle = '#4dff7a'; g.lineWidth = 7; g.beginPath(); g.moveTo(20, y + 24); g.lineTo(64, y); g.lineTo(108, y + 24); g.stroke(); } break;
     case 'ramp': fill('#5b4d45'); speck(900, .2); g.strokeStyle = 'rgba(0,0,0,.35)'; g.lineWidth = 3; for (let x = -128; x < 256; x += 24) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x + 128, 128); g.stroke(); } break;
     case 'crate': fill('#7d5a2e'); speck(600, .2); g.strokeStyle = '#4a3216'; g.lineWidth = 10; g.strokeRect(5, 5, 118, 118); g.beginPath(); g.moveTo(10, 10); g.lineTo(118, 118); g.moveTo(118, 10); g.lineTo(10, 118); g.stroke(); break;
+    case 'grate': fill('#3a3f42'); for (let y = 0; y < 128; y += 8) { g.fillStyle = '#1c1f21'; g.fillRect(0, y + 5, 128, 3); g.fillStyle = '#5a6266'; g.fillRect(0, y, 128, 1); } for (let x = 0; x < 128; x += 32) { g.fillStyle = '#25292b'; g.fillRect(x, 0, 3, 128); g.fillStyle = '#687075'; g.fillRect(x + 3, 0, 1, 128); } speck(400, .2); break;
+    case 'panel': fill('#5d646b'); speck(500, .12); for (const [x, y, w, h] of [[0, 0, 64, 64], [64, 0, 64, 32], [64, 32, 64, 32], [0, 64, 128, 40], [0, 104, 64, 24], [64, 104, 64, 24]]) { g.fillStyle = '#3d4348'; g.fillRect(x, y, w, 2); g.fillRect(x, y, 2, h); g.fillStyle = '#7c858c'; g.fillRect(x + 2, y + 2, w - 3, 1); g.fillRect(x + 2, y + 2, 1, h - 3); g.fillStyle = '#4a5156'; for (const [px, py] of [[x + 6, y + 6], [x + w - 8, y + 6], [x + 6, y + h - 8], [x + w - 8, y + h - 8]]) g.fillRect(px, py, 2, 2); }
+      g.fillStyle = '#2b3034'; g.fillRect(8, 74, 112, 20); g.fillStyle = '#d6a72a'; for (let x = 12; x < 116; x += 12) g.fillRect(x, 80, 6, 8); break;
+    case 'concrete': fill('#6b6862'); speck(2200, .18); speck(900, .07, 1); g.strokeStyle = 'rgba(40,38,34,.5)'; g.lineWidth = 2; g.strokeRect(1, 1, 126, 126); g.beginPath(); g.moveTo(20, 30); g.lineTo(44, 52); g.lineTo(40, 70); g.stroke(); break;
+    case 'hazard': fill('#1b1a16'); for (let x = -128; x < 256; x += 32) { g.fillStyle = '#e1b120'; g.beginPath(); g.moveTo(x, 128); g.lineTo(x + 16, 128); g.lineTo(x + 144, 0); g.lineTo(x + 128, 0); g.fill(); } speck(600, .25); break;
+    case 'lamp': fill('#fff6dc'); g.fillStyle = '#ffffff'; g.fillRect(16, 16, 96, 96); g.fillStyle = 'rgba(200,180,140,.5)'; for (let x = 0; x < 128; x += 32) g.fillRect(x, 0, 3, 128); break;
+    case 'pipe': fill('#4f5a52'); for (let y = 0; y < 128; y++) { const k = .55 + .45 * Math.sin(y / 128 * Math.PI * 4); g.fillStyle = `rgba(${150 * k | 0},${165 * k | 0},${150 * k | 0},.55)`; g.fillRect(0, y, 128, 1); } g.fillStyle = '#2c312d'; for (let x = 0; x < 128; x += 64) g.fillRect(x, 0, 6, 128); speck(300, .2); break;
+    case 'reactor': fill('#10203a'); for (let y = 0; y < 128; y += 16) { const gr = g.createLinearGradient(0, y, 0, y + 16); gr.addColorStop(0, '#2b6dff'); gr.addColorStop(.5, '#9fd0ff'); gr.addColorStop(1, '#1a3d8f'); g.fillStyle = gr; g.fillRect(8, y + 3, 112, 10); } g.fillStyle = '#0a1426'; g.fillRect(0, 0, 8, 128); g.fillRect(120, 0, 8, 128); break;
+    case 'sky': { const gr = g.createLinearGradient(0, 0, 128, 128); gr.addColorStop(0, '#0b1430'); gr.addColorStop(1, '#16224a'); g.fillStyle = gr; g.fillRect(0, 0, 128, 128); for (let i = 0; i < 60; i++) { g.fillStyle = `rgba(255,255,255,${.25 + rnd() * .75})`; const s = rnd() < .15 ? 2 : 1; g.fillRect(rnd() * 128 | 0, rnd() * 128 | 0, s, s); } break; }
+    case 'slime': fill('#2f6a1c'); for (let i = 0; i < 70; i++) { g.fillStyle = `rgba(${120 + rnd() * 80 | 0},${200 + rnd() * 55 | 0},60,${.15 + rnd() * .3})`; g.beginPath(); g.arc(rnd() * 128, rnd() * 128, 2 + rnd() * 9, 0, 7); g.fill(); } break;
+    case 'exitpad': fill('#062a16'); g.strokeStyle = '#4dff9a'; g.lineWidth = 5; for (let r = 12; r < 70; r += 16) { g.beginPath(); g.arc(64, 64, r, 0, 7); g.stroke(); } break;
     default: fill('#777');
   }
   return c;
 }
 let demoCache = null;
-function buildDemoWorld() {
-  const d = Q.demoMap(), G = new Map(), texCache = {};
-  const atlas = new Atlas(64); atlas.data.fill(255);
+function buildDemoWorld() { return buildBrushWorld(Q.demoMap(), 'Test map', 'test'); }
+function buildBrushWorld(d, name, id) {
+  const G = new Map(), texCache = {}, cm = Q.cmFromBrushes(d.brushes), baked = !!(d.lights && d.lights.length);
   const W = 2 / 64, L = [0.45, 0.3, 0.8]; Q.normalize(L);
-  for (const br of d.brushes) {
-    const mat = br.mat; if (!texCache[mat]) texCache[mat] = makeTex(gl, procTex(mat));
-    const isWater = mat === 'water';
-    const g = grp(G, mat, { tex: texCache[mat], kind: isWater ? 'trans' : 'opaque', alpha: isWater ? 0.45 : 1, warp: isWater, liquid: isWater ? 1 : 0 });
-    for (const f of Q.brushFaces(br.planes)) {
-      const n = f.n; if (isWater && n[2] < 0.9) continue;
-      const ax = Math.abs(n[0]), ay = Math.abs(n[1]), az = Math.abs(n[2]);
-      const shade = mat === 'pad' ? 1 : (0.42 + 0.45 * Math.max(0, Q.dot(n, L)) + 0.13 * Math.max(0, n[2])) * (n[2] < -0.5 ? 0.6 : 1);
-      addPoly(g, f.w.map(p => {
-        let u, v; if (az >= ax && az >= ay) { u = p[0]; v = -p[1]; } else if (ax >= ay) { u = p[1]; v = -p[2]; } else { u = p[0]; v = -p[2]; }
-        return [p[0], p[1], p[2], u / 128, v / 128, W, W, isWater ? 0.55 : shade * 0.5];
-      }));
-    }
+  const LIQ = { water: 1, slime: 2, lava: 3 }, FULL = { lamp: 1.8, sky: 1, exitpad: 1.5, reactor: 1.35 };
+  const faces = [];
+  for (const br of d.brushes) { const liq = LIQ[br.mat]; for (const f of Q.brushFaces(br.planes)) { if (liq && f.n[2] < 0.9) continue; faces.push({ br, w: f.w, n: f.n, d: Q.dot(f.n, f.w[0]), full: FULL[br.mat] || 0, liq }); } }
+  let lm = null; if (baked) lm = bakeBrushLight(d, cm, faces.filter(f => !f.liq));
+  for (const f of faces) {
+    const mat = f.br.mat; if (!texCache[mat]) texCache[mat] = makeTex(gl, procTex(mat));
+    const liq = f.liq, g = grp(G, mat, { tex: texCache[mat], kind: liq ? 'trans' : 'opaque', alpha: liq === 2 ? .8 : liq ? 0.45 : 1, warp: !!liq, liquid: liq || 0 });
+    const n = f.n, ax = Math.abs(n[0]), ay = Math.abs(n[1]), az = Math.abs(n[2]);
+    const shade = mat === 'pad' ? 1 : (0.42 + 0.45 * Math.max(0, Q.dot(n, L)) + 0.13 * Math.max(0, n[2])) * (n[2] < -0.5 ? 0.6 : 1);
+    addPoly(g, f.w.map(p => {
+      let u, v; if (az >= ax && az >= ay) { u = p[0]; v = -p[1]; } else if (ax >= ay) { u = p[1]; v = -p[2]; } else { u = p[0]; v = -p[2]; }
+      if (liq) return [p[0], p[1], p[2], u / 128, v / 128, W, W, liq === 2 ? .8 : 0.55];
+      if (f.lmUV) { const t = f.lmUV(p); return [p[0], p[1], p[2], u / 128, v / 128, t[0], t[1], 1]; }
+      return [p[0], p[1], p[2], u / 128, v / 128, W, W, shade * 0.5];
+    }));
   }
-  const w = uploadWorld(G, makeTex(gl, atlas.data, 64, 64, { lightmap: true }));
-  w.textures = []; w.cm = Q.cmFromBrushes(d.brushes); w.staticTriggers = d.triggers;
+  let lmTex; if (lm) lmTex = makeTex(gl, lm.data, lm.size, lm.size, { lightmap: true }); else { const atlas = new Atlas(64); atlas.data.fill(255); lmTex = makeTex(gl, atlas.data, 64, 64, { lightmap: true }); }
+  const w = uploadWorld(G, lmTex);
+  w.textures = []; w.cm = cm; w.staticTriggers = d.triggers.map(t => ({ ...t }));
   w.ents = d.barrels.map(b => ({ classname: 'misc_explobox', origin: b.join(' ') }));
-  w.spawns = d.spawns.map(s => ({ ...s, name: '' })); w.name = 'Test map'; w.demo = true;
+  w.spawns = d.spawns.map(s => ({ ...s, name: '' })); w.name = name; w.demo = true; w.builtin = id;
   return w;
 }
+// ---------- built-in campaign: Outpost Kappa ----------
+// A complete single-player level built from brushes, with baked light: a landing bay, a night courtyard, a warehouse with a mezzanine,
+// a slime pit crossed on a bridge and a reactor hall guarded by a tank, ending at an exit teleporter.
+function kappaMap() {
+  const C = Q, B = [], P = (n, d) => ({ n, d }), lights = [], SOLID = C.CONTENTS_SOLID;
+  const box = (x0, y0, z0, x1, y1, z1, mat, contents) => { if (x1 - x0 < .5 || y1 - y0 < .5 || z1 - z0 < .5) return null; const b = { planes: [P([-1, 0, 0], -x0), P([1, 0, 0], x1), P([0, -1, 0], -y0), P([0, 1, 0], y1), P([0, 0, -1], -z0), P([0, 0, 1], z1)], mat, contents: contents ?? SOLID }; B.push(b); return b; };
+  const wedge = (x0, y0, z0, x1, y1, axis, hStart, hEnd, mat) => { const b = box(x0, y0, z0, x1, y1, Math.max(hStart, hEnd), mat), a0 = axis === 0 ? x0 : y0, a1 = axis === 0 ? x1 : y1, na = -(hEnd - hStart), nz = a1 - a0, l = Math.hypot(na, nz), n = [0, 0, nz / l]; n[axis] = na / l; b.planes.push(P(n, n[axis] * a0 + n[2] * hStart)); };
+  const prism = (cx, cy, r, z0, z1, sides, mat) => { const pl = [P([0, 0, -1], -z0), P([0, 0, 1], z1)]; for (let i = 0; i < sides; i++) { const a = (i + .5) / sides * Math.PI * 2, n = [Math.cos(a), Math.sin(a), 0]; pl.push(P(n, n[0] * cx + n[1] * cy + r)); } B.push({ planes: pl, mat, contents: SOLID }); };
+  const light = (x, y, z, r, col, fix = 'ceil') => { lights.push({ o: [x, y, z], r, c: col }); if (fix === 'ceil') box(x - 20, y - 20, z + 6, x + 20, y + 20, z + 14, 'lamp', 0); else if (fix === 'wall') box(x - 6, y - 6, z - 12, x + 6, y + 6, z + 12, 'lamp', 0); }; // lamp fittings are decoration: no collision, no shadow
+  // a room is the air inside; walls, floor and ceiling are 32-unit slabs outside it, with openings cut where holes say
+  const room = (x0, y0, x1, y1, z0, z1, m, holes = []) => {
+    box(x0 - 32, y0 - 32, z0 - 32, x1 + 32, y1 + 32, z0, m.floor); if (m.ceil) box(x0 - 32, y0 - 32, z1, x1 + 32, y1 + 32, z1 + 32, m.ceil);
+    const wall = (side, a0, a1, mk) => { // a0..a1 along the wall; mk(a, b, za, zb) builds a slab piece
+      const hs = holes.filter(h => h.s === side).sort((p, q) => p.a0 - q.a0); let a = a0;
+      for (const h of hs) { mk(a, h.a0, z0, z1); if (h.z1 < z1) mk(h.a0, h.a1, h.z1, z1); if (h.z0 > z0) mk(h.a0, h.a1, z0, h.z0); a = h.a1; }
+      mk(a, a1, z0, z1);
+    };
+    wall('w', y0 - 32, y1 + 32, (a, b, za, zb) => box(x0 - 32, a, za, x0, b, zb, m.wall));
+    wall('e', y0 - 32, y1 + 32, (a, b, za, zb) => box(x1, a, za, x1 + 32, b, zb, m.wall));
+    wall('s', x0, x1, (a, b, za, zb) => box(a, y0 - 32, za, b, y0, zb, m.wall));
+    wall('n', x0, x1, (a, b, za, zb) => box(a, y1, za, b, y1 + 32, zb, m.wall));
+  };
+  const trim = (x0, y0, x1, y1, z) => { box(x0, y0, z, x0 + 8, y1, z + 12, 'hazard'); box(x1 - 8, y0, z, x1, y1, z + 12, 'hazard'); box(x0 + 8, y0, z, x1 - 8, y0 + 8, z + 12, 'hazard'); box(x0 + 8, y1 - 8, z, x1 - 8, y1, z + 12, 'hazard'); };
+  const W = [1, .88, .7], COOL = [.7, .85, 1], RED = [1, .35, .25], GREEN = [.45, 1, .4], BLUE = [.35, .6, 1];
+  // A. landing bay
+  room(-2304, -320, -1792, 320, 0, 288, { floor: 'grate', wall: 'panel', ceil: 'metal' }, [{ s: 'e', a0: -80, a1: 80, z0: 0, z1: 128 }]);
+  box(-2304, -320, 0, -2176, 320, 48, 'metal'); box(-2304, -320, 48, -2240, 320, 160, 'pipe'); // machinery along the back wall
+  box(-2048, -320, 0, -1984, -256, 96, 'crate'); box(-2048, 256, 0, -1984, 320, 64, 'crate'); box(-2112, 256, 0, -2048, 320, 128, 'crate');
+  trim(-2112, -96, -1920, 96, 0);
+  light(-2048, 0, 272, 420, W); light(-1888, -240, 272, 300, COOL); light(-1888, 240, 272, 300, COOL);
+  // corridor 1
+  room(-1760, -80, -1376, 80, 0, 128, { floor: 'floor', wall: 'panel', ceil: 'metal' }, [{ s: 'w', a0: -80, a1: 80, z0: 0, z1: 128 }, { s: 'e', a0: -80, a1: 80, z0: 0, z1: 128 }]);
+  light(-1568, 0, 112, 260, W);
+  // B. courtyard under a night sky
+  room(-1344, -768, -320, 768, 0, 544, { floor: 'concrete', wall: 'wall', ceil: 'sky' }, [{ s: 'w', a0: -80, a1: 80, z0: 0, z1: 128 }, { s: 'e', a0: -80, a1: 80, z0: 0, z1: 128 }]);
+  box(-1344, 576, 0, -320, 768, 128, 'tower'); // north walkway, with a railing that opens at the top of the stairs
+  for (let i = 0; i < 8; i++) box(-736, 320 + 32 * i, 0, -608, 576, 16 * (i + 1), 'metal');
+  box(-1344, 568, 128, -736, 576, 160, 'metal'); box(-608, 568, 128, -320, 576, 160, 'metal');
+  for (const [x, y] of [[-1088, -512], [-576, -512], [-1088, 192], [-576, 192]]) { box(x - 24, y - 24, 0, x + 24, y + 24, 544, 'tower'); light(x + 32, y, 360, 360, x < -800 ? W : RED, 'wall'); }
+  box(-960, -224, 0, -896, -160, 64, 'crate'); box(-896, -224, 0, -832, -160, 64, 'crate'); box(-928, -224, 64, -864, -160, 128, 'crate');
+  box(-544, 32, 0, -480, 96, 64, 'crate'); box(-1248, -704, 0, -1120, -640, 64, 'crate'); box(-480, -704, 0, -416, -640, 96, 'crate');
+  box(-832, -32, 0, -768, 32, 24, 'hazard'); // a drain grate in the middle of the yard
+  light(-832, 0, 520, 900, [.45, .55, .8], 'none'); light(-832, 672, 300, 420, W, 'wall'); light(-1200, 672, 300, 380, COOL, 'wall');
+  // corridor 2
+  room(-288, -80, 96, 80, 0, 128, { floor: 'floor', wall: 'panel', ceil: 'metal' }, [{ s: 'w', a0: -80, a1: 80, z0: 0, z1: 128 }, { s: 'e', a0: -80, a1: 80, z0: 0, z1: 128 }]);
+  light(-96, 0, 112, 260, RED);
+  // C. warehouse with a mezzanine
+  room(128, -576, 1152, 576, 0, 416, { floor: 'grate', wall: 'tower', ceil: 'metal' }, [{ s: 'w', a0: -80, a1: 80, z0: 0, z1: 128 }, { s: 'n', a0: 704, a1: 960, z0: 0, z1: 144 }]);
+  box(128, -576, 160, 768, -352, 176, 'grate'); box(128, -360, 176, 768, -352, 208, 'metal'); // mezzanine deck + railing
+  for (const x of [256, 512, 736]) box(x - 12, -364, 0, x + 12, -340, 160, 'pipe');
+  wedge(768, -576, 0, 1088, -448, 0, 176, 0, 'ramp');
+  const stack = (x, y, n) => { for (let k = 0; k < n; k++) box(x, y, k * 64, x + 64, y + 64, k * 64 + 64, 'crate'); };
+  stack(320, 64, 2); stack(384, 64, 1); stack(320, 128, 1); stack(704, 256, 3); stack(768, 256, 1); stack(960, -192, 2); stack(1024, -192, 1); stack(560, -160, 1); stack(1024, 384, 2);
+  light(320, -464, 400, 560, W); light(640, 0, 400, 640, W); light(960, 320, 400, 560, COOL); light(320, 400, 400, 480, RED); light(960, -320, 400, 520, W); light(640, 448, 400, 480, W); light(448, -464, 150, 300, W, 'none');
+  // corridor 3 north
+  room(704, 608, 960, 1024, 0, 144, { floor: 'floor', wall: 'panel', ceil: 'metal' }, [{ s: 's', a0: 704, a1: 960, z0: 0, z1: 144 }, { s: 'n', a0: 704, a1: 960, z0: 0, z1: 144 }]);
+  light(832, 816, 128, 280, GREEN);
+  // D. slime pit, crossed on a bridge
+  room(384, 1056, 1280, 1824, -160, 384, { floor: 'concrete', wall: 'wall', ceil: 'metal' }, [{ s: 's', a0: 704, a1: 960, z0: 0, z1: 144 }, { s: 'n', a0: 704, a1: 960, z0: 0, z1: 144 }]);
+  box(384, 1056, -160, 1280, 1184, 0, 'concrete'); box(384, 1696, -160, 1280, 1824, 0, 'concrete');
+  trim(384, 1176, 1280, 1184, 0); trim(384, 1696, 1280, 1704, 0);
+  box(784, 1184, -16, 880, 1696, 0, 'grate'); box(784, 1184, 0, 792, 1696, 24, 'metal'); box(872, 1184, 0, 880, 1696, 24, 'metal');
+  for (const y of [1312, 1440, 1568]) box(808, y - 12, -160, 856, y + 12, -16, 'pipe'); // bridge supports
+  box(600, 1420, -160, 664, 1484, 0, 'tower'); // a pillar you can jump to from the bridge
+  for (let i = 0; i < 4; i++) box(1184, 1184, -160, 1280, 1376 - 32 * i, -48 + 16 * i, 'metal'); // steps out of the slime
+  box(384, 1184, -160, 1280, 1696, -64, 'slime', C.CONTENTS_SLIME);
+  light(832, 1440, 120, 700, GREEN, 'none'); light(560, 1120, 200, 380, W, 'wall'); light(1100, 1760, 200, 380, W, 'wall'); light(832, 1440, 368, 480, COOL);
+  // corridor 4
+  room(704, 1856, 960, 2208, 0, 144, { floor: 'floor', wall: 'panel', ceil: 'metal' }, [{ s: 's', a0: 704, a1: 960, z0: 0, z1: 144 }, { s: 'n', a0: 704, a1: 960, z0: 0, z1: 144 }]);
+  light(832, 2032, 128, 280, RED);
+  // E. reactor hall
+  room(256, 2240, 1408, 3200, 0, 640, { floor: 'grate', wall: 'panel', ceil: 'metal' }, [{ s: 's', a0: 704, a1: 960, z0: 0, z1: 144 }]);
+  prism(832, 2720, 120, 0, 640, 8, 'reactor'); prism(832, 2720, 168, 0, 48, 8, 'metal');
+  for (const [x, y] of [[448, 2432], [1216, 2432], [448, 3008], [1216, 3008]]) prism(x, y, 32, 0, 640, 6, 'tower');
+  box(256, 2560, 0, 448, 2880, 96, 'metal'); wedge(448, 2560, 0, 640, 2688, 0, 96, 0, 'ramp'); trim(256, 2560, 448, 2880, 96); // west platform
+  box(1216, 2560, 0, 1408, 2880, 96, 'metal'); wedge(1024, 2752, 0, 1216, 2880, 0, 0, 96, 'ramp'); trim(1216, 2560, 1408, 2880, 96); // east platform
+  box(768, 3072, 0, 896, 3168, 8, 'exitpad'); box(752, 3056, 0, 768, 3184, 160, 'hazard'); box(896, 3056, 0, 912, 3184, 160, 'hazard'); box(752, 3056, 160, 912, 3184, 176, 'hazard');
+  for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2 + Math.PI / 4; light(832 + Math.cos(a) * 200, 2720 + Math.sin(a) * 200, 200, 620, BLUE, 'none'); } light(832, 2720, 600, 700, BLUE, 'none'); light(832, 3120, 140, 320, GREEN, 'none'); light(352, 2720, 300, 420, W, 'wall'); light(1312, 2720, 300, 420, W, 'wall'); light(832, 2320, 300, 420, RED, 'wall');
+  for (const [x, y] of [[448, 2432], [1216, 2432], [448, 3008], [1216, 3008]]) light(x, y, 620, 380, COOL);
+  const sl = [.25, .9, .25];
+  return {
+    brushes: B, lights, ambient: .2,
+    triggers: [
+      { type: 'msg', mins: [-2304, -320, 0], maxs: [-1792, 320, 288], deb: 0, once: true, text: 'Outpost Kappa: the reactor crew has gone silent. Fight through to the reactor hall and take the exit teleporter.' },
+      { type: 'msg', mins: [384, 1056, 0], maxs: [1280, 1184, 160], deb: 0, once: true, text: 'Slime pit — stay on the bridge.' },
+      { type: 'hurt', mins: [384, 1184, -160], maxs: [1280, 1696, -64], dmg: 4, every: 250 },
+      { type: 'exit', mins: [768, 3072, 8], maxs: [896, 3168, 80], area: [256, 2240, -1, 1408, 3200, 640], deb: 0 }
+    ],
+    monsters: [
+      ['monster_soldier_light', -900, -300, 24, 180], ['monster_soldier_light', -620, 380, 24, 200], ['monster_soldier', -480, -520, 24, 160], ['monster_soldier', -1000, 680, 152, 270], ['monster_soldier_ss', -450, 660, 152, 200],
+      ['monster_infantry', 520, 220, 24, 180], ['monster_infantry', 900, -100, 24, 150], ['monster_gunner', 420, -470, 200, 0], ['monster_berserk', 1000, 470, 24, 200], ['monster_soldier', 1060, 120, 24, 180],
+      ['monster_flyer', 600, 1360, 180, 270], ['monster_flyer', 1040, 1520, 200, 250], ['monster_flyer', 700, 1640, 160, 270], ['monster_soldier_ss', 832, 1770, 24, 270],
+      ['monster_soldier_ss', 520, 2480, 24, 90], ['monster_soldier_ss', 1150, 2480, 24, 90], ['monster_infantry', 352, 2720, 120, 0], ['monster_gunner', 1312, 2720, 120, 180], ['monster_tank', 832, 2980, 40, 270]
+    ],
+    items: [
+      ['weapon_shotgun', -2000, 0, 16], ['ammo_shells', -1960, 120, 16], ['item_armor_shard', -1900, -200, 16], ['item_armor_shard', -1870, -200, 16],
+      ['item_health', -1200, -600, 16], ['item_health', -400, 300, 16], ['ammo_shells', -1100, 0, 16], ['weapon_machinegun', -700, 690, 144], ['ammo_bullets', -1250, 690, 144], ['item_armor_jacket', -928, -192, 144],
+      ['weapon_grenadelauncher', 250, -460, 184], ['ammo_grenades', 330, -460, 184], ['item_health_large', 1080, -100, 16], ['ammo_bullets', 600, 400, 16], ['item_health_large', 352, 96, 144], ['ammo_shells', 1000, 520, 16],
+      ['item_health_mega', 632, 1452, 16], ['weapon_rocketlauncher', 832, 1760, 16], ['ammo_rockets', 760, 1760, 16], ['item_health', 832, 1120, 16],
+      ['item_quad', 352, 2720, 112], ['item_armor_combat', 1312, 2620, 112], ['item_health_large', 1312, 2820, 112], ['ammo_rockets', 600, 2300, 16], ['ammo_shells', 1060, 2300, 16], ['item_health', 832, 2300, 16]
+    ],
+    barrels: [[-1280, -400, 0], [-1280, -360, 0], [-400, 500, 0], [-700, -700, 0], [200, 480, 0], [240, 520, 0], [1100, -520, 0], [460, 2300, 0], [1200, 2300, 0], [600, 3100, 0]],
+    spawns: [{ o: [-2200, 0, 24], yaw: 0 }, { o: [-900, 0, 24], yaw: 0 }, { o: [640, 0, 24], yaw: 90 }, { o: [832, 1760, 24], yaw: 270 }, { o: [832, 2400, 24], yaw: 90 }, { o: [-1000, 680, 152], yaw: 270 }]
+  };
+}
+// Baked light for brush maps: every face gets a lightmap (one luxel per 32 units), lit by the map's lamps with traced shadows.
+function bakeBrushLight(d, cm, faces) {
+  const L = 32, prevCM = Q.getCM(); Q.setCM(cm); const lit = d.lights || [], amb = d.ambient ?? .15;
+  let area = 0; const recs = [];
+  for (const f of faces) {
+    const n = f.n, ax = Math.abs(n[0]), ay = Math.abs(n[1]), az = Math.abs(n[2]), mj = az >= ax && az >= ay ? 2 : ax >= ay ? 0 : 1, uA = mj === 0 ? 1 : 0, vA = mj === 2 ? 1 : 2;
+    let u0 = 1e9, u1 = -1e9, v0 = 1e9, v1 = -1e9; for (const p of f.w) { u0 = Math.min(u0, p[uA]); u1 = Math.max(u1, p[uA]); v0 = Math.min(v0, p[vA]); v1 = Math.max(v1, p[vA]); }
+    let step = L; while ((u1 - u0) / step > 120 || (v1 - v0) / step > 120) step *= 2;
+    const lw = Math.ceil((u1 - u0) / step) + 1, lh = Math.ceil((v1 - v0) / step) + 1;
+    recs.push({ f, mj, uA, vA, u0, v0, step, lw, lh }); area += (lw + 2) * (lh + 2);
+  }
+  let size = 256; while (size * size < area * 1.3) size *= 2;
+  let atlas; for (;;) { atlas = new Atlas(size); let ok = true; for (const r of recs) { const a = atlas.alloc(r.lw + 2, r.lh + 2); if (!a) { ok = false; break; } r.ax = a.x; r.ay = a.y; } if (ok) break; size *= 2; }
+  const A = atlas.data;
+  for (const r of recs) {
+    const n = r.f.n, pl = r.f.d, full = r.f.full;
+    const buf = new Float32Array(r.lw * r.lh * 3);
+    for (let j = 0; j < r.lh; j++) for (let i = 0; i < r.lw; i++) {
+      const p = [0, 0, 0]; p[r.uA] = r.u0 + i * r.step; p[r.vA] = r.v0 + j * r.step;
+      const rest = pl - n[r.uA] * p[r.uA] - n[r.vA] * p[r.vA]; p[r.mj] = rest / n[r.mj];
+      const q = [p[0] + n[0] * 2, p[1] + n[1] * 2, p[2] + n[2] * 2];
+      let c = full ? [full, full, full] : [amb * (.8 + .2 * n[2]), amb * (.82 + .2 * n[2]), amb * (.9 + .2 * n[2])];
+      if (!full) for (const l of lit) {
+        const dx = l.o[0] - q[0], dy = l.o[1] - q[1], dz = l.o[2] - q[2], dist = Math.hypot(dx, dy, dz); if (dist > l.r) continue;
+        const ndl = (n[0] * dx + n[1] * dy + n[2] * dz) / (dist || 1); if (ndl <= 0) continue;
+        if (Q.trace(q, Z3, Z3, l.o, Q.MASK_SOLID, true).fraction < .995) continue;
+        const k = (1 - dist / l.r) * (.35 + .65 * ndl) * 1.15; for (let ch = 0; ch < 3; ch++) c[ch] += l.c[ch] * k;
+      }
+      buf.set(c, (j * r.lw + i) * 3);
+    }
+    for (let y = -1; y <= r.lh; y++) for (let x = -1; x <= r.lw; x++) {
+      const sx = Math.min(r.lw - 1, Math.max(0, x)), sy = Math.min(r.lh - 1, Math.max(0, y)), si = (sy * r.lw + sx) * 3, di = ((r.ay + 1 + y) * size + r.ax + 1 + x) * 4;
+      for (let ch = 0; ch < 3; ch++) A[di + ch] = Math.min(255, buf[si + ch] * 127.5); A[di + 3] = 255;
+    }
+    r.f.lmUV = p => [(r.ax + 1.5 + (p[r.uA] - r.u0) / r.step) / size, (r.ay + 1.5 + (p[r.vA] - r.v0) / r.step) / size];
+  }
+  Q.setCM(prevCM);
+  return { data: A, size };
+}
 
+// built-in maps: the test map and the campaign level. ents() lists the entities for a fresh start.
+const BUILTIN_MAPS = {
+  test: { name: 'Test map', data: () => Q.demoMap(), ents: () => demoEnts(), campaign: false },
+  kappa: { name: 'Outpost Kappa', data: () => kappaMap(), campaign: true, ents() { const d = kappaMap(); return [...d.barrels.map(b => ({ classname: 'misc_explobox', origin: b.join(' ') })), ...d.monsters.map(([c, x, y, z, a]) => ({ classname: c, origin: `${x} ${y} ${z}`, angle: String(a) })), ...d.items.map(([c, x, y, z]) => ({ classname: c, origin: `${x} ${y} ${z}` }))]; } }
+};
+const builtinCache = {};
+function builtinWorld(id) {
+  const B = BUILTIN_MAPS[id] || BUILTIN_MAPS.test; id = BUILTIN_MAPS[id] ? id : 'test';
+  if (id === 'test') { if (!demoCache) demoCache = buildDemoWorld(); builtinCache.test = demoCache; }
+  const w = builtinCache[id] || (builtinCache[id] = buildBrushWorld(B.data(), B.name, id));
+  w.ents = B.ents(); w.staticTriggers = B.data().triggers.map(t => ({ ...t })); return w;
+}
+function startBuiltin(id, campaign) { // play a built-in map from the start
+  if (!gl) return; const w = builtinWorld(id); resetPlayer(); campaignMode = !!campaign; resetInventory(!campaign); setWorld(w); loaded = true; lastMapPath = null; startGame();
+}
+let exitT = 0;
+function levelExit(t) { // the exit teleporter of a built-in campaign level
+  if (simTime < (t.deb || 0)) return; t.deb = simTime + 1500;
+  const a = t.area, left = a ? E.monsters.filter(m => !m.bot && !m.dead && !m.hidden && !m.gibbed && m.o[0] > a[0] && m.o[1] > a[1] && m.o[0] < a[3] && m.o[1] < a[4]).length : 0;
+  if (left) { toast(`The exit is sealed — ${left} hostile${left > 1 ? 's' : ''} still in the reactor hall.`, 2500); play('noammo', .6); return; }
+  if (exitT) return; exitT = simTime; play('tele', .9); addLight(ps.origin.map(v => v / 8), 400, [.4, 1, .6], .8);
+  const secs = Math.round(simTime / 1000), msg = `${world.name} complete — kills ${PL.kills}/${PL.total} · time ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+  toast(msg, 6000); setStatus(msg);
+  later(2500, () => { exitT = 0; if (!running) return; pauseGame(); showScreen('sp'); });
+}
 // ---------- textures from paks ----------
 async function loadTexture(name) {
   const d = await vfsGet('textures/' + name + '.wal');
@@ -2038,13 +2313,14 @@ function updateListener(e, f, u) {
 const BUILTIN_SND = new Set(['fire', 'boom', 'gboom', 'blaster', 'hyper', 'hyperLoop', 'hyperDown', 'shotgun', 'sshotgun', 'mg1', 'mg2', 'mg3', 'mg4', 'mg5', 'cgUp', 'cgLoop', 'cgDown', 'gl', 'gbounce', 'hgPin', 'hgThrow', 'hgCook', 'hgBounce1', 'hgBounce2', 'rail', 'bfgCharge', 'bfgBoom', 'lashit', 'ric1', 'ric2', 'ric3']);
 const SYNTH_ALIAS = { q3mg1: 'mg1', q3mg2: 'mg2', q3mg3: 'mg3', q3mg4: 'mg4', q3sg: 'sshotgun', q3gl: 'gl', q3gb1: 'gbounce', q3gb2: 'gbounce', q3rl: 'fire', q3boom: 'boom', q3lgFire: 'lashit', q3rg: 'rail', q3pg: 'hyper', q3pgHit: 'lashit', q3bfg: 'bfgCharge', q3gauntHit: 'land', q3ngFire: 'sshotgun', q3ngHit: 'lashit', q3ngHitMetal: 'lashit', q3ngHitFlesh: 'lashit', q3pxFire: 'gl', q3pxStick: 'gbounce', q3pxStickMetal: 'gbounce', q3pxActv: 'button', q3pxTick: 'button', q3cg1: 'mg1', q3cg2: 'mg2', q3cg3: 'mg3', q3cg4: 'mg4', q3change: 'button', jumppad: 'push', telein: 'tele', watrSplash: 'watrIn' };
 function play(k, vol = 1) { if (running && E && !PL.dead) hearSound(playerCenter(), loudOf(k), 'player', k); if (!AC) return; if (S.wset === 'builtin' && BUILTIN_SND.has(k)) { synth(k, vol); return; } const b = getSnd(keyPath(k)); if (b) playBuf(b, vol); else if (b === null) synth(k, vol); }
-function playAt(k, p, vol = 1, attn = 1) {
-  if (E && p) hearSound(p, loudOf(k), 'world', k);
+function playAt(k, p, vol = 1, attn = 1, src = 'world', owner) {
+  if (E && p && src) hearSound(p, loudOf(k), src, k, owner);
   if (!AC || !p) return; const b = S.wset === 'builtin' && BUILTIN_SND.has(k) ? null : getSnd(keyPath(k));
   if (b) playBuf(b, vol, p, attn);
   else if (b === null && SND[k]) synth(k, vol * Math.max(0, 1 - Math.hypot(p[0] - listenerPos[0], p[1] - listenerPos[1], p[2] - listenerPos[2]) / 1200));
 }
-function playPathAt(path, p, vol = 1, attn = 1, fallback) { if (!AC || !path) return; const b = getSnd(path); if (b) playBuf(b, vol, p, attn); else if (b === null && fallback) playAt(fallback, p, vol, attn); }
+// a sound file at a spot; when there's no file for it (or no path at all — bots have no monster sound set) the fallback key plays instead
+function playPathAt(path, p, vol = 1, attn = 1, fallback, src = null, owner) { if (!AC) return; if (!path) { if (fallback) playAt(fallback, p, vol, attn, src, owner); return; } const b = getSnd(path); if (b) playBuf(b, vol, p, attn); else if (b === null && fallback) playAt(fallback, p, vol, attn, src, owner); }
 let wasUnder = false;
 function setUnderwater(on) { if (!lowpass || on === wasUnder) return; wasUnder = on; lowpass.frequency.setTargetAtTime(on ? 700 : 22000, AC.currentTime, 0.05); }
 function synth(k, vol) {
@@ -2409,7 +2685,7 @@ function shiftClocks(d) {
   W3.flashT = sh(W3.flashT); W3.flashSeen = sh(W3.flashSeen); W3.landT = sh(W3.landT); W3.torso.start = sh(W3.torso.start); W3.barrel.time = sh(W3.barrel.time);
 }
 function setWorld(w, spot) {
-  if (world && world !== demoCache) freeWorld(world);
+  if (world && !world.builtin) freeWorld(world);
   BOT.on = false; BOT.bots = [];
   world = w; Q.setCM(w.cm); clearFx(); shiftClocks(simTime); simTime = 0; stopSpeakers();
   initEntities(w);
@@ -2468,7 +2744,9 @@ function touchTriggers() {
       case 'door': if (simTime < t.deb || t.door.dead) break; t.deb = simTime + 1000; doorUse(t.door, 'player'); break;
       case 'plat': { const p = t.plat; if (p.dead) break; if (p.state === 'bottom') platGoUp(p); else if (p.state === 'top') p.nextT = simTime + 1000; break; }
       case 'button': buttonFire(t.btn, 'player'); break;
-      case 'msg': if (simTime < t.deb) break; t.deb = simTime + 5000; toast(t.text); play('talk', .6); break;
+      case 'msg': if (simTime < t.deb) break; t.deb = t.once ? 1e15 : simTime + 5000; toast(t.text, 4500); play('talk', .6); break;
+      case 'hurt': if (PL.dead || simTime < (t.next || 0)) break; t.next = simTime + (t.every || 100); damagePlayer(t.dmg || 5, null); break;
+      case 'exit': levelExit(t); break;
     }
   }
 }
@@ -3058,7 +3336,7 @@ function takeSnap(label) {
   if (!world || !E) return null;
   const mons = E.monsters.filter(m => !m.bot);
   return {
-    v: 1, t: Date.now(), label, map: world.demo ? 'test' : lastMapPath, mapName: world.name || (world.demo ? 'Test map' : lastMapPath), skill: S.skill,
+    v: 1, t: Date.now(), label, map: world.demo ? (world.builtin || 'test') : lastMapPath, mapName: world.name || (world.demo ? 'Test map' : lastMapPath), skill: S.skill,
     coop: BOT.on && BOT.mode === 'coop', bots: BOT.on ? BOT.bots.length : 0,
     p: { o: ps.origin.slice(), vel: ps.velocity.slice(), flags: ps.flags, yaw, pitch, hp: PL.health, mhp: PL.maxHealth, ar: PL.armor, af: PL.armorFrac,
       quad: Math.max(0, PL.quad - simTime), invul: Math.max(0, PL.invul - simTime), kills: PL.kills },
@@ -3121,11 +3399,11 @@ function saveGame(name) {
 }
 async function loadSnap(s) {
   if (!s) { toast('No save to load'); return; }
-  const demo = s.map === 'test';
+  const demo = !!BUILTIN_MAPS[s.map];
   if (!demo && !VFS.has(s.map)) { toast(`Map ${s.map} isn't loaded — add the game files first`, 4000); return; }
   hideDeathMenu(); SAVE.pending = s; if (s.skill !== undefined) S.skill = s.skill;
   BOT.mode = s.coop ? 'coop' : BOT.mode; BOT.pending = s.coop ? s.bots + 1 : 0;
-  if (demo) { if (!demoCache) demoCache = buildDemoWorld(); demoCache.ents = demoEnts(); resetPlayer(); campaignMode = !!s.inv.campaign; resetInventory(true); setWorld(demoCache); loaded = true; startGame(); }
+  if (demo) { const w = builtinWorld(s.map); resetPlayer(); campaignMode = !!s.inv.campaign; resetInventory(true); setWorld(w); loaded = true; startGame(); }
   else await loadMap(s.map, null, false);
   if (SAVE.pending) { SAVE.pending = null; } // map failed to load
   toast(`Loaded — ${s.label}`, 2000);
@@ -3491,7 +3769,7 @@ function makeMonsterRagdoll(m) {
   if (mm) {
     const ft = Math.max(0, Math.min(1, (100 - m.thinkT) / 100)); capture = [md2World(mm.m, m.oldFrame, m.frame, ft, M)]; render = { type: 'md2', inst: mm.inst, tex: mm.skins[m.mon.skin + 1] || mm.skins[m.mon.skin] || mm.skins[0] };
   }
-  else render = { type: 'boxes', colors: { torso: [.5, .17, .12, 1], limb: [.4, .13, .1, 1], head: [.95, .75, .3, 1], boot: [.2, .1, .08, 1] }, scale: (m.mmaxs[2] - m.mmins[2]) / 56 };
+  else render = { type: 'boxes', colors: { fig: FIG[m.mon.dir] || FIG.default, noGun: true }, drone: DRONE[m.mon.dir] || DRONE.flyer, scale: (m.mmaxs[2] - m.mmins[2]) / 56 };
   m.rag = createRagdoll({ kind, o: m.ro.slice(), yaw: m.ryaw, mins: m.mmins.slice(), maxs: m.mmaxs.slice(), vel: m.vel.slice(), impulse: imp, capture, render, ent: m });
 }
 function monsterDie(m) {
@@ -3611,9 +3889,10 @@ let lastMapPath = null;
 function startBotMatch(n, path, mode, rules) { // path: a map, 'test' for the built-in one, or nothing for the last map played
   if (mode) BOT.mode = mode; if (rules) { BOT.fragLimit = rules.frag | 0; BOT.timeLimit = rules.time | 0; }
   BOT.count = n === undefined || n === null || isNaN(n) ? BOT.count : Math.max(0, Math.min(7, n | 0)); BOT.pending = BOT.count + 1; // +1 so "0 bots" still triggers a match
-  if (path && path !== 'test') { loadMap(path, null, running); return; }
+  if (path && !BUILTIN_MAPS[path]) { loadMap(path, null, running); return; }
+  if (!path && world && world.builtin && world.builtin !== 'test') path = world.builtin;
   if (!path && world && !world.demo && lastMapPath && VFS.has(lastMapPath)) { loadMap(lastMapPath, null, running); return; }
-  if (!gl) return; if (!demoCache) demoCache = buildDemoWorld(); demoCache.ents = demoEnts(); resetPlayer(); campaignMode = false; resetInventory(true); setWorld(demoCache); loaded = true; startGame();
+  if (!gl) return; const bid = BUILTIN_MAPS[path] ? path : 'test', w = builtinWorld(bid); resetPlayer(); campaignMode = BOT.mode === 'coop' && BUILTIN_MAPS[bid].campaign; resetInventory(!campaignMode); setWorld(w); loaded = true; startGame();
 }
 function matchLine() { // the score line, with limits
   const left = BOT.timeLimit ? Math.max(0, BOT.timeLimit * 60000 - (simTime - BOT.startT)) : -1, clock = left >= 0 ? `  ·  ${Math.floor(left / 60000)}:${String(Math.floor(left / 1000) % 60).padStart(2, '0')}` : '';
@@ -3631,6 +3910,7 @@ function checkMatchEnd() {
 }
 function updateBots() {
   checkMatchEnd();
+  for (const b of BOT.bots) botSteps(b);
   if (NAV.w !== world || NAV.E !== E) { NAV.w = world; NAV.E = E; navReset(); BOT.log = []; BOT.plan = null; BOT.planT = 0; }
   navPump();
   if (BOT.mode === 'coop' && simTime >= BOT.planT) { BOT.planT = simTime + 900; squadPlan(); }
@@ -3648,6 +3928,7 @@ function botRagdoll(m) {
   const dir = lastHitFrom ? nrm(sub3(entCenter(m), lastHitFrom)) : [0, 0, 0], imp = [dir[0] * 250, dir[1] * 250, 60];
   const box = { kind: 'h', o: m.o.slice(), yaw: m.yaw, mins: [-16, -16, -24], maxs: [16, 16, 32], vel: m.vel.slice(), impulse: imp, ent: m };
   playerRagSource(box, m.o, m.yaw, { q3: [[QA.LEGS_IDLE, 0], [QA.TORSO_STAND, 0]], q2: ['stand', 0, true] }, m.pm || player);
+  if (box.render && box.render.type === 'boxes') box.render.colors = { fig: botFig(m.hue), noGun: true };
   m.rag = createRagdoll(box);
 }
 function damageBot(m, dmg, src) {
@@ -3655,7 +3936,7 @@ function damageBot(m, dmg, src) {
   const save = Math.min(m.armorB || 0, Math.ceil(dmg * .6)); m.armorB = (m.armorB || 0) - save; m.health -= dmg - save;
   if (m.health <= 0) { botDie(m, src !== 'monster'); return; }
   if (src !== 'monster' && !PL.dead) { m.last = playerCenter(); m.lastT = simTime; }
-  if (simTime >= (m.painT || 0)) { m.painT = simTime + 500; playPathAt(botVoice(m, `pain${m.health < 25 ? 25 : m.health < 50 ? 50 : m.health < 75 ? 75 : 100}_${1 + (Math.random() * 2 | 0)}.wav`), m.o, 1, 1, 'hurt'); }
+  if (simTime >= (m.painT || 0)) { m.painT = simTime + 500; playPathAt(botVoice(m, `pain${m.health < 25 ? 25 : m.health < 50 ? 50 : m.health < 75 ? 75 : 100}_${1 + (Math.random() * 2 | 0)}.wav`), m.o, 1, 1, 'hurt', null); }
 }
 function botDie(m, byPlayer) {
   m.dead = true; m.health = 0; m.takedamage = false; m.box.active = false; m.deaths++; m.quad = m.inv = 0; m.role = 'follow'; m.nav = null; hearSound(m.o, 800, 'bot', 'death', m);
@@ -3851,7 +4132,7 @@ function botGo(m, goal, spd, face = true) {
 // behind cover and recover), Follow (hold a formation spot around you) or Investigate (go and see what that noise was).
 const ROLE_LABEL = { follow: 'FOLLOW', initiate: 'INITIATE', flank: 'FLANK', cover: 'COVER', guard: 'COVER YOU', retreat: 'FALL BACK', investigate: 'INVESTIGATE' };
 const ROLE_SAY = { follow: ['On you.', 'Right behind you.'], initiate: ['Engaging!', "I've got eyes on it — moving in!"], flank: ['Flanking!', 'Going around the side!'], cover: ['Covering!', 'Suppressing — go!'], guard: ["I've got your back!", 'Staying with you!'], retreat: ['Need cover — falling back!', 'Hurt — pulling back!'], investigate: ['Heard something…', 'Checking that out.'] };
-function say(m, role) { if (simTime - (m.sayT || -1e9) < 4000) return; m.sayT = simTime; const t = ROLE_SAY[role]; BOT.log.push({ t: simTime, s: `${m.name}: ${t[Math.random() * t.length | 0]}` }); while (BOT.log.length > 4) BOT.log.shift(); }
+function say(m, role) { if (simTime - (m.sayT || -1e9) < 4000) return; m.sayT = simTime; const t = ROLE_SAY[role]; playAt('talk', m.o, .55, .6, null); if (m.set === 'q3' && (role === 'initiate' || role === 'flank') && Math.random() < .5) playPathAt(botVoice(m, 'taunt.wav'), m.o, .9, .8); BOT.log.push({ t: simTime, s: `${m.name}: ${t[Math.random() * t.length | 0]}` }); while (BOT.log.length > 4) BOT.log.shift(); }
 const visFrom = (a, b) => Q.trace(a, Z3, Z3, b, Q.MASK_OPAQUE, true).fraction === 1;
 function groundAt(x, y, z) { const t = Q.trace([x, y, z + 40], NHULL.mins, NHULL.maxs, [x, y, z - 120], Q.MASK_MONSTERSOLID, true); return t.allsolid || t.startsolid || t.fraction === 1 || t.normal[2] < .7 ? null : t.endpos; }
 function squadThreats(bots) {
@@ -3975,6 +4256,11 @@ function updateSquadHud() {
   const t = lines.join('\n'); if (el.textContent !== t) el.textContent = t; el.hidden = false;
 }
 
+function botSteps(m) { // bots are heard moving: footsteps on the ground, a splash in water
+  if (m.dead || m.hidden || !m.moveT || simTime - m.moveT > 250 || simTime < (m.stepT || 0)) return;
+  const wet = Q.pointContents([m.o[0], m.o[1], m.o[2] - 16]) & Q.MASK_WATER; m.stepT = simTime + (wet ? 520 : 330 + Math.random() * 40);
+  playAt(wet ? 'watrOut' : 'step' + (1 + (Math.random() * 4 | 0)), [m.o[0], m.o[1], m.o[2] - 20], wet ? .35 : .5, 1.3, 'bot', m);
+}
 function botThink(m) {
   const sk = S.skill, dm = [.7, 1, 1.35][sk], spd = m.mon.run * .1 * [.85, .95, 1.05][sk], acc = [.13, .085, .05][sk];
   if (!m.ally) botCollect(m);
@@ -4029,8 +4315,30 @@ function drawBot(m, vp, shade) {
   }
   const hue = (m.hue || 0) % 5, col = [[.6, .16, .14], [.15, .35, .6], [.2, .5, .22], [.55, .4, .12], [.4, .2, .55]][hue];
   const Pp = humanPose(o, m.ryaw, [-16, -16, -24], [16, 16, 32], builtinPose(clock, { move: moving ? 1 : 0, duck: false, air: false, fire: shot < .3, pitch: 0 }));
-  drawBoneBoxes(vp, Pp, { ...BOT_COL, torso: [...col, 1], limb: col.map(v => v * .75).concat(1) });
-  const hx = nrm(sub3(Pp[9], Pp[8])), hy = nrm(Q.cross([0, 0, 1], hx)); drawSolid(vp, cube, basis(Pp[9], hx, hy, Q.cross(hx, hy)), [...(wi === 2 ? [.45, .2, .2] : wi === 1 ? [.4, .3, .2] : [.3, .3, .3]), 1], 1);
+  drawFigure(vp, Pp, botFig(m.hue), 1, true);
+}
+function drawItemShape(vp, M, it, time) { // built-in pickups: a medkit, a vest, a gun, an ammo crate, a glowing powerup
+  const B = (x, y, z, sx, sy, sz, c, lit = 1, mesh = rbox) => drawSolid(vp, mesh, mul(M, trs(x, y, z, sx, sy, sz)), c, lit), p = [M[12], M[13], M[14]];
+  if (it.quad || it.inv || it.adr) { const c = it.quad ? [.35, .5, 1] : it.inv ? [1, .8, .25] : [1, .35, .35]; B(0, 0, 2, 11, 11, 11, [...c, 1], .35, sphere); B(0, 0, 2, 16, 16, 1.2, [...c.map(v => v * .8), 1], 0, cyl); glows.push({ p: [p[0], p[1], p[2] + 2], s: 14, c: [...c, .5] }); return; }
+  if (it.h) { const mega = it.h >= 100, big = it.h >= 25; if (mega) { B(0, 0, 0, 12, 12, 12, [.35, .55, 1, 1], .5, sphere); B(0, 0, 0, 3, 13, 3.5, [1, 1, 1, 1], 0); B(0, 0, 0, 3, 3.5, 13, [1, 1, 1, 1], 0); return; }
+    const s = big ? 1.3 : it.h <= 10 ? .75 : 1; B(0, 0, 0, 10 * s, 12 * s, 8 * s, [.9, .92, .9, 1]); B(0, 0, 4.1 * s, 3 * s, 8 * s, .6, [.85, .1, .1, 1], .6); B(0, 0, 4.1 * s, 8 * s, 3 * s, .6, [.85, .1, .1, 1], .6); B(0, 0, -3.5 * s, 10.4 * s, 12.4 * s, 1.5, [.4, .42, .4, 1]); return; }
+  if (it.a) { const c = it.a >= 100 ? [.85, .22, .18] : it.a >= 50 ? [.85, .75, .2] : it.a >= 25 ? [.35, .6, .3] : [.6, .6, .55], s = it.a < 5 ? .55 : 1;
+    B(0, 0, 0, 5 * s, 12 * s, 13 * s, [...c, 1]); B(1, 0, 1, 4 * s, 9 * s, 8 * s, [...c.map(v => v * 1.25), 1]); for (const y of [-1, 1]) B(0, y * 6.5 * s, 5.5 * s, 6 * s, 4 * s, 3 * s, [...c.map(v => v * .8), 1]); return; }
+  if (it.w !== undefined) { const gm = [.22, .23, .25, 1]; B(0, 0, 0, 20, 3.4, 4.4, gm); B(-7, 0, -1.5, 6, 3, 6, [.32, .26, .2, 1]); B(4, 0, 2.6, 9, 1.6, 1.4, [.55, .6, .65, 1]); B(-1, 0, -3.6, 2.6, 2.4, 4.4, gm); B(9, 0, 0, 3, 3.8, 3.8, [.9, .55, .15, 1], 0); return; }
+  if (it.am || it.ammo) { for (const [x, y] of [[-3.2, -2.6], [3.2, -2.6], [-3.2, 2.6], [3.2, 2.6]]) B(x, y, 0, 6, 5, 7, [.42, .42, .28, 1]); B(0, 0, 3.8, 12.6, 10.6, 1, [.9, .7, .2, 1], .6); return; }
+  B(0, 0, 0, 7, 7, 7, [.6, .6, .65, 1]); B(0, 0, 0, 8, 2, 2, [.9, .8, .3, 1], 0);
+}
+function drawBuiltinMonster(vp, m, M) { // no model files: a drone for the flyers, an armoured figure for everyone else
+  const dir = m.mon.dir, t = realTime / 1000 + (m.hue || (m.hue = Math.random() * 10));
+  if (RAG_BOX.has(dir) || m.mon.fly !== undefined || m.mon.swim) {
+    const zc = (m.mmaxs[2] + m.mmins[2]) / 2 + Math.sin(t * 2.2) * 2, s = (m.mmaxs[0] - m.mmins[0]) * .62;
+    drawDrone(vp, mul(M, trs(0, 0, zc, 1, 1, 1)), s, DRONE[dir] || (dir.startsWith('boss') ? { body: [.35, .36, .4], plate: [.55, .56, .62], visor: [1, .3, .15] } : DRONE.flyer), t); return;
+  }
+  const act = m.act, pose = builtinPose(t, { move: act === 'run' ? 1 : act === 'walk' ? .55 : 0, duck: act === 'duck', air: false, fire: act === 'attack' || act === 'melee', pitch: 0 });
+  let Pp = humanPose(m.ro, m.ryaw, m.mmins, m.mmaxs, pose);
+  if (m.dead) { const r = m.ryaw * Math.PI / 180, f = [Math.cos(r), Math.sin(r), 0], base = m.ro[2] + m.mmins[2]; Pp = Pp.map(p => { const d = sub3(p, m.ro), fx = Q.dot(d, f), zz = p[2] - base; return [m.ro[0] + d[0] - f[0] * (fx + zz), m.ro[1] + d[1] - f[1] * (fx + zz), base + 4 + Math.max(0, fx) * .3]; }); }
+  let st = FIG[dir] || FIG.default; if (act === 'pain' && !m.dead) st = { ...st, body: st.body.map(v => Math.min(1, v + .35)) };
+  drawFigure(vp, Pp, st, (m.mmaxs[2] - m.mmins[2]) / 56, !m.dead);
 }
 function runMonsters(msec) {
   const dt = msec / 1000;
@@ -4161,8 +4469,10 @@ function playerAnim() {
 
 // ---------- rendering ----------
 let realTime = 0, attract = false; // attract: the slow fly-around behind the title screen
+let solidFrame = -1;
 function drawSolid(vp, mesh, M, color, lit = 1) {
   gl.useProgram(solidP.p);
+  if (solidFrame !== realTime) { solidFrame = realTime; gl.uniform3fv(solidP.u.uEye, curEye); gl.uniform4fv(solidP.u['uDL[0]'], DLP); gl.uniform3fv(solidP.u['uDLC[0]'], DLC); gl.uniform1i(solidP.u.uNDL, nDL); }
   gl.uniformMatrix4fv(solidP.u.uMVP, false, mul(vp, M)); gl.uniformMatrix4fv(solidP.u.uM, false, M);
   if (POWV[3] > 0) { const a = POWV[3], w = .5 + .5 * Math.sin(realTime / 1000 * 7 + M[12] * .07 + M[13] * .05 + M[14] * .1); color = [0, 1, 2].map(i => Math.min(1.4, color[i] * (1 + POWV[i] * .9 * a) + POWV[i] * a * (.2 + .45 * w))).concat(color[3]); } // powerup glow on box-built models
   gl.uniform4fv(solidP.u.uColor, color); gl.uniform1f(solidP.u.uLit, lit);
@@ -4297,7 +4607,8 @@ function render(alpha, dt) {
   for (const e of E.barrels) {
     if (e.dead) continue; const b = e.box;
     if (PM.barrel) md2Draw(mainCtx, PM.barrel.inst, PM.barrel.tex, 0, 0, 0, vp, entMat([(b.mins[0] + b.maxs[0]) / 2, (b.mins[1] + b.maxs[1]) / 2, b.mins[2]], 0, 0), shade, .5);
-    else { const c = entCenter(e); drawSolid(vp, cube, trs(c[0], c[1], c[2], 15, 15, 20), [.5, .2, .12, 1]); drawSolid(vp, cube, trs(c[0], c[1], c[2] + 6, 15.5, 15.5, 2), [.85, .7, .15, 1]); }
+    else { const c = [(b.mins[0] + b.maxs[0]) / 2, (b.mins[1] + b.maxs[1]) / 2, b.mins[2] + 20], U = basis(c, [0, 0, 1], [1, 0, 0], [0, 1, 0]); // a steel drum with hazard bands
+      drawSolid(vp, cyl, mul(U, trs(0, 0, 0, 39, 28, 28)), [.52, .18, .12, 1]); for (const z of [-12, 12]) drawSolid(vp, cyl, mul(U, trs(z, 0, 0, 3, 29.5, 29.5)), [.22, .1, .08, 1]); drawSolid(vp, cyl, mul(U, trs(4, 0, 0, 7, 28.6, 28.6)), [.92, .72, .14, 1]); drawSolid(vp, cyl, mul(U, trs(19.6, 0, 0, 1, 20, 20)), [.3, .3, .3, 1]); }
   }
   for (const rd of ragdolls) if (rd !== PL.rag || S.third || !PL.dead) drawRagdoll(rd, vp, shade);
   for (const m of E.monsters) {
@@ -4310,9 +4621,7 @@ function render(alpha, dt) {
     const mm = MM[m.mon.dir], M = entMat(m.ro, m.ryaw, 0);
     if (mm) { const ft = Math.max(0, Math.min(1, (100 - m.thinkT) / 100)), sk = mm.skins[m.mon.skin + (m.health < m.maxHealth / 2 ? 1 : 0)] || mm.skins[m.mon.skin] || mm.skins[0]; md2Draw(mainCtx, mm.inst, sk, m.oldFrame, m.frame, ft, vp, M, shade, .45); }
     else {
-      const h = (m.mmaxs[2] - m.mmins[2]) / 2, w = (m.mmaxs[0] - m.mmins[0]) / 2, zc = (m.mmaxs[2] + m.mmins[2]) / 2, col = m.dead ? [.25, .08, .06, 1] : m.act === 'attack' || m.act === 'melee' ? [.85, .3, .15, 1] : m.act === 'pain' ? [1, .6, .5, 1] : [.6, .2, .15, 1];
-      drawSolid(vp, cube, mul(M, trs(0, 0, zc, w * .8, w * .8, h)), col);
-      if (!m.dead) { drawSolid(vp, cube, mul(M, trs(w * .6, 0, zc + h * .55, w * .45, w * .45, h * .18)), [.95, .75, .3, 1]); drawSolid(vp, cube, mul(M, trs(w, -w * .5, zc + h * .1, w * .8, 2.5, 2.5)), [.15, .15, .15, 1]); }
+      drawBuiltinMonster(vp, m, M);
     }
   }
   for (const e of E.items) {
@@ -4321,7 +4630,7 @@ function render(alpha, dt) {
     if (Array.isArray(vis.m)) { const M = entMat([e.o[0], e.o[1], e.o[2] + 4 + Math.cos(time * 2.5 + e.o[0] * .01) * 4], (time * 175) % 360, 0); let any = false; for (const p of vis.m) { const im = IM[p]; if (im) { md3Draw(mainCtx, im.inst, im.texs, 0, 0, 0, vp, M, shade * 1.1, .6); any = true; } } if (any) continue; }
     const im = IM['models/' + e.item.m + '/tris.md2'], M = entMat(e.o, (time * 180) % 360, 0);
     if (im) md2Draw(mainCtx, im.inst, im.tex, 0, 0, 0, vp, M, shade * 1.1, .6);
-    else drawSolid(vp, cube, mul(M, trs(0, 0, -6 + Math.sin(time * 3) * 2, 7, 7, 7)), e.item.h ? [.85, .9, .85, 1] : e.item.a ? [.9, .75, .2, 1] : e.item.quad ? [.3, .4, 1, 1] : [.6, .6, .65, 1]);
+    else drawItemShape(vp, mul(M, trs(0, 0, -4 + Math.sin(time * 3) * 2, 1, 1, 1)), e.item, time);
   }
   for (const c of debris) {
     const k = Math.min(1, (c.life - c.age) * 2), M = mul(entMat(c.p, c.a[1], c.a[0]), trs(0, 0, 0, k, k, k)), m = PM[c.model];
@@ -4376,13 +4685,18 @@ function render(alpha, dt) {
       const cw = curW(), d = curSet()[cw.cur], vproj = perspective(fovy, aspect, 1, 200), drop = cw.state === 'dropping' || cw.state === 'activating' || cw.state === 'raising' ? -6 : 0;
       const gx = 7.5 + bx, gy = -8 + by + drop, gz = kick - 5, len = d.grenade ? 3 : S.wset === 'q3' ? [5, 10, 11, 10, 13, 11, 16, 10, 12][cw.cur] || 12 : [8, 12, 11, 10, 11, 10, 13, 11, 16, 12][cw.cur] || 12;
       const c = [...d.col, 1], dark = [d.col[0] * .6, d.col[1] * .6, d.col[2] * .6, 1];
-      if (d.grenade) drawSolid(vproj, sphere, trs(gx, gy + 1, gz - 12, 3, 3, 3.6), c);
-      else {
-        drawSolid(vproj, cube, trs(gx, gy, gz - 4 - len, 1.6, 1.6, len), c);
-        drawSolid(vproj, cube, trs(gx, gy - 2.2, gz - 10, 2.3, 1.7, 5), dark);
-        drawSolid(vproj, cube, trs(gx, gy - 4.5, gz - 7, 1, 2.6, 1.4), [.15, .14, .13, 1]);
-        if (S.wset === 'q3' ? cw.cur === 1 || cw.cur === 0 : (W.cur === 4 || W.cur === 7)) for (const a of [0, 2.1, 4.2]) drawSolid(vproj, cube, trs(gx + Math.cos(a + time * (attackHeld() ? 20 : 1)) * 1.4, gy + Math.sin(a + time * (attackHeld() ? 20 : 1)) * 1.4, gz - 4 - len, .5, .5, len), dark);
+      solidFrame = realTime; gl.useProgram(solidP.p); gl.uniform3fv(solidP.u.uEye, Z3); gl.uniform1i(solidP.u.uNDL, 0); // view space: the eye is the origin
+      if (d.grenade) { drawSolid(vproj, sphere, trs(gx, gy + 1, gz - 12, 3, 3, 3.6), [.3, .34, .26, 1]); drawSolid(vproj, cyl, mul(trs(gx, gy + 4, gz - 12, 1, 1, 1), basis(Z3, [0, 1, 0], [1, 0, 0], [0, 0, -1])), [.55, .55, .5, 1]); }
+      else { // a built-in gun: receiver, barrel and shroud, a grip, and a glowing stripe in the weapon's colour
+        const O = [gx, gy, gz - 4], G = (fw, lf, up, sf, sl, su, col, mesh = rbox, lit = 1) => drawSolid(vproj, mesh, mul(basis([O[0] - lf, O[1] + up, O[2] - fw], [0, 0, -1], [-1, 0, 0], [0, 1, 0]), trs(0, 0, 0, sf, sl, su)), col, lit);
+        const gm = [.2, .21, .23, 1], body = [d.col[0] * .55 + .1, d.col[1] * .55 + .1, d.col[2] * .55 + .1, 1], L2 = len * 2, spin = S.wset === 'q3' ? cw.cur === 1 || cw.cur === 0 : (W.cur === 4 || W.cur === 7);
+        G(len * .55, 0, 0, len * 1.15, 3.6, 4.2, body); G(len * .6, 0, 2.5, len * .95, 1.7, 1.2, dark);
+        for (const sd of [-1, 1]) G(len * .55, sd * 1.82, .3, len * .8, .25, 1, [...d.col.map(v => Math.min(1, v * 1.4 + .15)), 1], rbox, 0);
+        if (spin) { const a0 = time * (attackHeld() ? 20 : 1); for (const a of [0, 2.1, 4.2]) G(len * 1.45, Math.cos(a + a0) * 1.1, Math.sin(a + a0) * 1.1, len * 1.1, .9, .9, gm, cyl); G(L2 - .4, 0, 0, .8, 3.2, 3.2, dark, cyl); }
+        else { G(len * 1.45, 0, 0, len * 1.1, 1.8, 1.8, gm, cyl); G(L2 - .4, 0, 0, .9, 2.5, 2.5, dark, cyl); G(len * 1.3, 0, -1.9, len * .7, 1.3, 1.3, gm, cyl); }
+        G(2.4, 0, -3.4, 2.6, 2.4, 5, [.16, .14, .13, 1]); G(len * .3, 0, -2.8, 2, 1.4, 2.4, dark);
       }
+      solidFrame = -1;
     }
     POWV = POW0;
   }
@@ -5016,7 +5330,7 @@ function humanPose(o, yaw, mins, maxs, local) {
   return (local || HUM.pts).map(([x, y, z]) => { const zz = mins[2] + (z + 24) * H / 56; return [o[0] + f[0] * x * Wd + l[0] * y * Wd, o[1] + f[1] * x * Wd + l[1] * y * Wd, o[2] + zz]; });
 }
 const clampLen = (v, m) => { const l = Math.hypot(...v); return l > m ? v.map(x => x * m / l) : v; };
-const RAG_MAXV = 1600; const ragH = () => Math.max(1, S.tick || 8) / 1000; // ragdolls step once per game tick // units/s: fast enough for a rocket-jumped corpse, slow enough that nothing tunnels or explodes
+const RAG_MAXV = 1200; const ragH = () => Math.max(1, S.tick || 8) / 1000; // ragdolls step once per game tick // units/s: fast enough for a rocket-jumped corpse, slow enough that nothing tunnels or explodes
 function createRagdoll(src) {
   let pts, cons = [], bones, rad, kind = src.kind || 'h';
   if (kind === 'h') { pts = src.pts || humanPose(src.o, src.yaw, src.mins, src.maxs); bones = HUM.bones; const sc = (src.maxs[2] - src.mins[2]) / 56; rad = HUM.rad.map(x => x * sc); for (const [a, b] of [...HUM.bones, ...HUM.braces]) cons.push([a, b, Math.hypot(...sub3(pts[a], pts[b])), 0]); for (const [a, b, k] of HUM.soft) cons.push([a, b, Math.hypot(...sub3(pts[a], pts[b])) * k, 1]); }
@@ -5031,9 +5345,15 @@ function createRagdoll(src) {
     const cc = Q.pointContents(c) & Q.MASK_SOLID ? null : c;
     if (cc) pts = pts.map(p => { const t = Q.trace(cc, Z3, Z3, p, Q.MASK_SOLID, true); if (t.fraction >= 1) return p; const d = nrm(sub3(cc, p)); return t.endpos.map((x, k) => x + d[k] * 1.5); });
   }
+  if (Q.pointContents(src.o || pts[2]) & Q.MASK_SOLID) ragUnstick({ kind, pts, prev: pts.map(p => p.slice()) });
   const v = clampLen(src.vel || [0, 0, 0], 900), imp = clampLen(src.impulse || [0, 0, 0], 1400), dt = ragH();
   const prev = pts.map((p, i) => { const w = kind === 'h' ? (i <= 2 || i === 4 || i === 7 ? 1 : i >= 10 ? .35 : .7) : (i & 4 ? 1 : .6); return [p[0] - (v[0] + imp[0] * w) * dt, p[1] - (v[1] + imp[1] * w) * dt, p[2] - (v[2] + imp[2] * w) * dt]; });
   const rd = { pts: pts.map(p => p.slice()), prev, cons, bones, rad, kind, sleep: 0, age: 0, render: src.render, ent: src.ent, wet: pts.map(() => false), splashT: 0 };
+  if (kind === 'h') { // the pose the head and arms hold (in the chest's frame), and how far any point may ever be from the body's middle
+    const F = ragFrame(rd.pts), loc = (i, j) => { const d = sub3(rd.pts[i], rd.pts[j]); return [Q.dot(d, F.f), Q.dot(d, F.l), Q.dot(d, F.u)]; };
+    rd.pose = { head: loc(0, 1), ua: [loc(5, 4), loc(8, 7)], fa: [loc(6, 5), loc(9, 8)] };
+    rd.ext = Math.max(...rd.pts.map(p => Math.hypot(...sub3(p, rd.pts[2])))) * 1.35 + 6;
+  } else rd.ext = Math.max(...pts.map(p => Math.hypot(...sub3(p, pts[0])))) * 1.35 + 6;
   if (src.capture) {
     const r = src.render || {}; let topo = null;
     if (r.type === 'md2') topo = [{ tris: r.inst.model.corners, part: null }];
@@ -5140,6 +5460,53 @@ function restRagdoll(rd, h) {
   const inside = Q.pointContents(p) & Q.MASK_SOLID, t = inside ? null : Q.trace(p, Z3, Z3, [p[0], p[1], p[2] - 3], Q.MASK_SOLID, true);
   if (inside || t.fraction >= 1) { rd.sleep = 0; rd.rest = null; }
 }
+// the chest's frame: up the spine, across the shoulders, and forward
+function ragFrame(P) {
+  const u = nrm(sub3(P[1], P[3])), l0 = sub3(P[4], P[7]), l = nrm(sub3(l0, u.map(v => v * Q.dot(l0, u)))), f = Q.cross(l, u);
+  return { u, l, f };
+}
+// Stiff joints: the head holds its place on the neck almost rigidly, the arms resist bending away from the pose they died in (gravity still
+// sags them a little). Each correction pulls the child toward its target and the parent slightly the other way, so the body doesn't drift.
+const RAG_HEAD_K = .6, RAG_UARM_K = .06, RAG_FARM_K = .05;
+function ragStiffen(rd, h) {
+  const P = rd.pts, F = ragFrame(P), po = rd.pose; if (!po || ![...F.u, ...F.l, ...F.f].every(Number.isFinite)) return;
+  const pull = (c, par, L, k, back) => {
+    const kk = 1 - Math.pow(1 - k, h * 60), t = [0, 1, 2].map(i => P[par][i] + F.f[i] * L[0] + F.l[i] * L[1] + F.u[i] * L[2]), m = sub3(t, P[c]);
+    for (let i = 0; i < 3; i++) { P[c][i] += m[i] * kk; for (const [b, w] of back) P[b][i] -= m[i] * kk * w; }
+  };
+  pull(0, 1, po.head, RAG_HEAD_K, [[1, .12], [4, .06], [7, .06]]);
+  pull(5, 4, po.ua[0], RAG_UARM_K, [[4, .25]]); pull(8, 7, po.ua[1], RAG_UARM_K, [[7, .25]]);
+  pull(6, 5, po.fa[0], RAG_FARM_K, [[5, .3]]); pull(9, 8, po.fa[1], RAG_FARM_K, [[8, .3]]);
+}
+// A body that ends a tick torn apart, scattered, inside a wall or full of NaNs goes back to its last good state, at rest.
+function ragHealthy(rd) {
+  const P = rd.pts, core = rd.kind === 'h' ? P[2] : P[0];
+  for (const p of P) { if (!p.every(Number.isFinite)) return false; if (Math.hypot(...sub3(p, core)) > rd.ext) return false; }
+  for (const [a, b, len, soft] of rd.cons) if (!soft && Math.abs(Math.hypot(...sub3(P[b], P[a])) - len) > len * .45 + 2) return false;
+  return !(Q.pointContents(core) & Q.MASK_SOLID);
+}
+function ragUnstick(rd) { // the body's middle is inside something: move the whole body to the nearest open spot
+  const P = rd.pts, core = rd.kind === 'h' ? P[2] : P.reduce((a, p) => a.map((x, k) => x + p[k] / P.length), [0, 0, 0]);
+  if (!core.every(Number.isFinite) || !(Q.pointContents(core) & Q.MASK_SOLID)) return false;
+  for (const r of [8, 16, 24, 32, 48, 64, 96, 128, 160]) for (const [dx, dy, dz] of [[0, 0, 1], [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [.7, .7, 0], [-.7, .7, 0], [.7, -.7, 0], [-.7, -.7, 0], [0, 0, -1]]) {
+    const o = [dx * r, dy * r, dz * r], c = core.map((v, k) => v + o[k]);
+    if (Q.pointContents(c) & Q.MASK_SOLID) continue; const t = Q.trace(c, [-6, -6, -6], [6, 6, 6], c, Q.MASK_SOLID, true); if (t.allsolid || t.startsolid) continue;
+    if (Q.trace(c, Z3, Z3, [c[0], c[1], c[2] - 600], Q.MASK_SOLID, true).fraction >= 1) continue; // nothing underneath: that's outside the map
+    for (let i = 0; i < P.length; i++) for (let k = 0; k < 3; k++) { P[i][k] += o[k]; rd.prev[i][k] = P[i][k]; }
+    return true;
+  }
+  return false;
+}
+function ragGuard(rd) {
+  if (ragHealthy(rd)) { rd.bad = 0; if (!rd.good || (rd.goodN = (rd.goodN || 0) + 1) % 3 === 0) rd.good = rd.pts.map(p => p.slice()); return; }
+  rd.bad = (rd.bad || 0) + 1;
+  if (ragUnstick(rd) && ragHealthy(rd)) { rd.bad = 0; rd.good = rd.pts.map(p => p.slice()); return; }
+  if (rd.good && rd.bad < 20) { rd.pts = rd.good.map(p => p.slice()); rd.prev = rd.good.map(p => p.slice()); rd.fy = null; return; }
+  // nothing good to go back to: pull every point back into shape around the middle, motionless
+  const core = rd.kind === 'h' ? rd.pts[2] : rd.pts[0], c = core.every(Number.isFinite) ? core : (rd.good ? rd.good[2] || rd.good[0] : [0, 0, 0]);
+  rd.pts = rd.pts.map(p => p.every(Number.isFinite) && Math.hypot(...sub3(p, c)) < rd.ext ? p.slice() : c.map(x => x + (Math.random() - .5)));
+  rd.prev = rd.pts.map(p => p.slice()); rd.good = rd.pts.map(p => p.slice()); rd.bad = 0; rd.fy = null;
+}
 function stepRagdoll(rd, h) {
   const P = rd.pts, V = rd.prev, n = P.length, maxStep = RAG_MAXV * h; rd.age += h;
   if ((rd.chk = (rd.chk || 0) + 1) % 6 === 0) { // a point stuck inside the world is pulled back toward the body
@@ -5174,6 +5541,7 @@ function stepRagdoll(rd, h) {
     }
     if (rd.kind === 'h' && (it & 1)) { ragHinges(P); ragCones(P); }
   }
+  if (rd.kind === 'h') ragStiffen(rd, h);
   if (rd.kind === 'h') for (let k = 0; k < 4; k++) for (const [a, b, len, soft] of rd.cons) { // bones stay their length: the skin is rigid to them, so a stretched bone is a stretched model
     if (soft || !HUM.boneSet.has(a * 16 + b)) continue; const d = sub3(P[b], P[a]), l = Math.hypot(...d); if (l < 1e-6) continue; const q = (l - len) / l * .5; for (let c = 0; c < 3; c++) { P[a][c] += d[c] * q; P[b][c] -= d[c] * q; }
   }
@@ -5187,6 +5555,8 @@ function stepRagdoll(rd, h) {
   if (rd.kind === 'h') { // bending damping: neighbouring bones share some of each other's motion, so limbs don't whip
     const d = Math.min(.5, RAG_STIFF * .1 * h * 60);
     for (const [a, b] of HUM.bones) for (let c = 0; c < 3; c++) { const rel = (P[b][c] - V[b][c]) - (P[a][c] - V[a][c]); V[b][c] += rel * d * .5; V[a][c] -= rel * d * .5; }
+    const dj = 1 - Math.pow(1 - .18, h * 60); // the neck and arms are damped harder: they swing, they don't flail
+    for (const [a, b] of [[1, 0], [4, 5], [5, 6], [7, 8], [8, 9]]) for (let c = 0; c < 3; c++) { const rel = (P[b][c] - V[b][c]) - (P[a][c] - V[a][c]); V[b][c] += rel * dj * .7; V[a][c] -= rel * dj * .3; }
   }
   if (rd.hull) { ragHullCollide(rd, h); motion = 0; for (let i = 0; i < n; i++) motion += Math.hypot(...sub3(P[i], old[i])); }
   // 5. settle: once nearly still, bleed energy so the body comes to rest instead of trembling
@@ -5198,6 +5568,7 @@ function stepRagdoll(rd, h) {
   rd.avgS = (rd.avgS ?? avg) * .92 + avg * .08; rd.sleep = rd.avgS < 5 && worst < .1 && rd.age - (rd.lastTouch || -9) < .3 ? rd.sleep + h : 0;
   if (rd.sleep > .5 && !rd.rest) { rd.rest = []; for (let i = 0; i < n; i++) { const t = Q.trace(P[i], Z3, Z3, [P[i][0], P[i][1], P[i][2] - 3], Q.MASK_SOLID, true); if (t.fraction < 1) rd.rest.push(i); } for (let i = 0; i < n; i++) V[i] = P[i].slice(); }
   else if (!rd.sleep) rd.rest = null;
+  ragGuard(rd);
 }
 // sweep one point (a small box, falling back to a bare point in tight spots); returns the resting spot and normal
 function ragSweep(rd, i, from, to) {
@@ -5261,6 +5632,7 @@ function ragHullCollide(rd, h) {
       hit = true;
     }
     if (!hit) continue;
+    { const pl0 = Math.hypot(...push); if (pl0 > 4) push = push.map(x => x * 4 / pl0); } // out of the floor a little at a time, never in one jump
     const ids = rd.kind === 'h' ? [ia, ib] : P.map((_, i) => i), pl = Math.hypot(...push), n = push.map(x => x / pl);
     for (const i of ids) {
       for (let c = 0; c < 3; c++) { P[i][c] += push[c]; V[i][c] += push[c]; }
@@ -5282,7 +5654,8 @@ function ragCones(P) {
     const sn = Math.sqrt(1 - cm * cm), tgt = [0, 1, 2].map(c => P[a][c] + (par[c] * cm + side[c] / sl * sn) * L);
     for (let c = 0; c < 3; c++) { const m = (tgt[c] - P[b][c]) * .6 * (1 + RAG_STIFF); P[b][c] += m; }
   };
-  const s = 1 - RAG_STIFF; lim(3, 2, 2, 1, 40 * s); lim(2, 1, 1, 0, 60 * s); // spine -> chest -> head
+  const s = 1 - RAG_STIFF; lim(3, 2, 2, 1, 40 * s); lim(2, 1, 1, 0, 28); // spine -> chest -> head (the neck barely bends)
+  lim(1, 3, 4, 5, 125); lim(1, 3, 7, 8, 125); // upper arms can't swing up past the head
   lim(1, 3, 10, 11, 150 * s); lim(1, 3, 13, 14, 150 * s); // thigh stays within 150 degrees of "down the body" (no knees through the ribs)
 }
 function ragdollPush(p, radius, power) { // explosions shove nearby bodies
@@ -5301,8 +5674,9 @@ function drawRagdoll(rd, vp, shade) {
   const r = rd.render; if (!r) return;
   if (r.type === 'boxes') {
     if (rd.pts.length >= 14) { drawBoneBoxes(vp, rd.pts, r.colors, r.scale || 1); return; }
-    const lo = [1e9, 1e9, 1e9], hi = [-1e9, -1e9, -1e9]; for (const p of rd.pts) for (let c = 0; c < 3; c++) { lo[c] = Math.min(lo[c], p[c]); hi[c] = Math.max(hi[c], p[c]); } // a non-humanoid body: a tumbling block
-    drawSolid(vp, cube, trs((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2, Math.max(4, hi[0] - lo[0]), Math.max(4, hi[1] - lo[1]), Math.max(4, hi[2] - lo[2])), [...(r.colors.torso || [.5, .2, .15, 1]).slice(0, 3), 1], 1); return;
+    const P = rd.pts, avg = idx => [0, 1, 2].map(c => idx.reduce((a, i) => a + P[i][c], 0) / idx.length); // a non-humanoid body: the drone, tumbling with its box
+    const ctr = avg([0, 1, 2, 3, 4, 5, 6, 7]), f = nrm(sub3(avg([1, 3, 5, 7]), avg([0, 2, 4, 6]))), l0 = sub3(avg([2, 3, 6, 7]), avg([0, 1, 4, 5])), l = nrm(sub3(l0, f.map(v => v * Q.dot(l0, f)))), u = Q.cross(f, l);
+    if ([...f, ...l].every(Number.isFinite)) drawDrone(vp, basis(ctr, f, l, u), Math.hypot(...sub3(P[7], P[0])) * .55, r.drone, 0); return;
   }
   skinRagdoll(rd);
   if (r.type === 'md2') { const inst = r.inst, out = inst.buf, c = inst.model.corners, s = rd.bind[0]; for (let i = 0; i < inst.model.n; i++) { const v = c[i] * 3; out[i * 6] = s.pos[v]; out[i * 6 + 1] = s.pos[v + 1]; out[i * 6 + 2] = s.pos[v + 2]; out[i * 6 + 3] = s.nrm[v]; out[i * 6 + 4] = s.nrm[v + 1]; out[i * 6 + 5] = s.nrm[v + 2]; } md2DrawBuf(mainCtx, inst, r.tex, vp, shade); }
@@ -5336,15 +5710,7 @@ function builtinPose(t, st) { // returns HUM-layout local points
   arm(4, 5, 6, aim - .2 + sw * .1, .5); arm(7, 8, 9, aim, .25);
   return p;
 }
-function drawBoneBoxes(vp, P, col, sc) {
-  col = col || BUILTIN_COL; sc = sc || 1;
-  const part = (a, b, w, c) => { const d = sub3(P[b], P[a]), l = Math.hypot(...d); if (l < .1) return; const x = d.map(v => v / l), up = Math.abs(x[2]) < .9 ? [0, 0, 1] : [1, 0, 0], y = nrm(Q.cross(up, x)), z = Q.cross(x, y), m = P[a].map((v, i) => v + d[i] / 2); drawSolid(vp, cube, mul(basis(m, x, y, z), trs(0, 0, 0, l / 2, w * sc, w * sc)), c); };
-  part(3, 1, 6, col.torso); part(4, 7, 2.5, col.torso); part(10, 13, 3, col.limb);
-  part(4, 5, 2.2, col.limb); part(5, 6, 2, col.limb); part(7, 8, 2.2, col.limb); part(8, 9, 2, col.limb);
-  part(10, 11, 2.6, col.limb); part(11, 12, 2.4, col.boot); part(13, 14, 2.6, col.limb); part(14, 15, 2.4, col.boot);
-  const hx = nrm(sub3(P[0], P[1])), l0 = sub3(P[4], P[7]), hy = nrm(sub3(l0, hx.map(v => v * Q.dot(l0, hx)))), hz = Q.cross(hx, hy);
-  drawSolid(vp, cube, mul(basis(P[0], hx, hy, hz), trs(0, 0, 0, 4.5 * sc, 4 * sc, 4 * sc)), col.head);
-}
+function drawBoneBoxes(vp, P, col, sc) { drawFigure(vp, P, col && col.fig || FIG.player, sc || 1, !(col && col.noGun)); }
 function builtinPlayerPoints(o) {
   const xy = Math.hypot(ps.velocity[0], ps.velocity[1]) / 8;
   const loc = builtinPose(realTime / 1000, { move: Math.min(1, xy / 300), duck: !!(ps.flags & Q.PMF_DUCKED), air: !pm.ground && pm.waterlevel < 2 && airTime > 120, fire: simTime - lastFire < 300, pitch: -pitch / 90 });
@@ -5519,7 +5885,8 @@ function pauseGame() {
 }
 const setStatus = (t, err) => { const s = $('status'); s.textContent = t; s.classList.toggle('err', !!err); };
 function demoEnts() { const d = Q.demoMap(); return [...d.barrels.map(b => ({ classname: 'misc_explobox', origin: b.join(' ') })), ...(S.testEnemies ? d.monsters.map(([c, x, y, z, a]) => ({ classname: c, origin: `${x} ${y} ${z}`, angle: String(a) })) : []), ...d.items.map(([c, x, y, z]) => ({ classname: c, origin: `${x} ${y} ${z}` }))]; }
-$('playDemo').onclick = () => { if (!gl) return; if (!demoCache) demoCache = buildDemoWorld(); demoCache.ents = demoEnts(); resetPlayer(); campaignMode = false; resetInventory(true); setWorld(demoCache); loaded = true; startGame(); };
+$('playDemo').onclick = () => startBuiltin('test', false);
+$('playKappa').onclick = () => startBuiltin('kappa', true);
 function resetPlayer() { PL.dead = false; PL.health = 100; PL.maxHealth = 100; PL.armor = 0; PL.armorFrac = 0; PL.quad = PL.invul = 0; $('dead').hidden = true; }
 $('resume').onclick = () => startGame();
 $('botBtn').onclick = () => startBotMatch(+$('botCount').value, $('mpMap').value, $('matchMode').value, { frag: +$('mpFrag').value, time: +$('mpTime').value });
@@ -5575,7 +5942,7 @@ function fillMpMap() { // Deathmatch picks any arena; Co-op picks a single-playe
   const sel = $('mpMap'), coop = $('matchMode').value === 'coop', keep = sel.value; $('mapLbl').textContent = coop ? 'Unit' : 'Map'; $('fragRow').classList.toggle('off', coop);
   sel.innerHTML = ''; const add = (v, t, g) => { const o = document.createElement('option'); o.value = v; o.textContent = t; (g || sel).appendChild(o); };
   const grp = (label, list) => { if (!list || !list.length) return; const g = document.createElement('optgroup'); g.label = label; for (const [m, i] of list) add(m, `${m.slice(5, -4)} — ${i.title}`, g); sel.appendChild(g); };
-  add('test', 'Test map');
+  add('test', 'Test map'); add('kappa', coop ? 'Outpost Kappa (built-in campaign)' : 'Outpost Kappa (built-in)');
   if (MAPCAT) { if (coop) grp('Single-player units', MAPCAT.sp); else { grp('Quake II deathmatch', MAPCAT.dm); grp('Quake III arenas', MAPCAT.q3); grp('Other maps', MAPCAT.other); grp('Single-player maps', MAPCAT.sp); } }
   sel.value = [...sel.options].some(o => o.value === keep) ? keep : (sel.options.length > 1 ? sel.options[1].value : 'test');
 }
@@ -5738,12 +6105,13 @@ const COMMANDS = {
   maps: ['list the maps you have loaded', () => { const m = [...VFS.keys()].filter(k => /^maps\/.*\.bsp$/.test(k)).map(k => k.slice(5, -4)); conPrint(m.length ? m.join('  ') : 'No maps loaded. Drop a .pak or .pk3 on the page.', m.length ? '' : 'dim'); }],
   map: ['<name> load a map', a => {
     if (!a.length) { conPrint('usage: map <name>   (try "maps")', 'dim'); return; }
+    if (BUILTIN_MAPS[a[0].toLowerCase()]) { const id = a[0].toLowerCase(); closeConsole(); startBuiltin(id, BUILTIN_MAPS[id].campaign); return; } // built-in: test, kappa
     const path = 'maps/' + a[0].toLowerCase().replace(/\.bsp$/, '') + '.bsp'; if (!VFS.has(path)) { conPrint(`Can't find ${path}`, 'err'); return; }
     conPrint(`Loading ${path}…`, 'dim'); closeConsole(); loadMap(path);
   }],
   botmatch: ['botmatch [bots] [map] [dm|coop] — a bot match (1-7 bots) on the last map or any map you name', a => {
     let p = null, n = 0, mode = null;
-    for (const t of a) { if (/^\d+$/.test(t)) n = +t; else if (/^(dm|deathmatch)$/i.test(t)) mode = 'dm'; else if (/^coop$/i.test(t)) mode = 'coop'; else { p = 'maps/' + t.toLowerCase().replace(/\.bsp$/, '') + '.bsp'; if (!VFS.has(p)) { conPrint(`Can't find ${p}`, 'err'); return; } } }
+    for (const t of a) { if (/^\d+$/.test(t)) n = +t; else if (/^(dm|deathmatch)$/i.test(t)) mode = 'dm'; else if (/^coop$/i.test(t)) mode = 'coop'; else if (BUILTIN_MAPS[t.toLowerCase()]) p = t.toLowerCase(); else { p = 'maps/' + t.toLowerCase().replace(/\.bsp$/, '') + '.bsp'; if (!VFS.has(p)) { conPrint(`Can't find ${p}`, 'err'); return; } } }
     closeConsole(); startBotMatch(n || BOT.count, p, mode || $('matchMode').value, { frag: +$('mpFrag').value, time: +$('mpTime').value });
   }],
   coop: ['coop [bots] [map] — bots fight beside you against the level\'s monsters', a => runCommand('botmatch ' + a.join(' ') + ' coop')],
