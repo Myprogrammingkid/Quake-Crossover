@@ -333,6 +333,8 @@ body.touch #info{left:112px}
           <select id="skill"><option value="0">Easy</option><option value="1">Medium</option><option value="2">Hard</option></select></label>
         <label>Player damage
           <select id="hurt"><option value="monsters">On in maps with monsters</option><option value="always">Always on (rocket jumps cost health)</option><option value="never">God mode</option></select></label>
+        <label title="How the Quake III lightning gun's beam is drawn">Lightning gun beam
+          <select id="lgBeam"><option value="new">lightning3new — Quake III 1.32 bolt</option><option value="old">lightning3 — original Quake III bolt</option><option value="builtin">Built-in bolt</option><option value="particles">Particle arc</option><option value="off">Off</option></select></label>
         <label>Physics rate (cl_maxfps)
           <select id="tick"><option value="8">125 Hz — 8 ms (competitive)</option><option value="11">90 Hz — 11 ms (default)</option><option value="16">62 Hz — 16 ms</option><option value="33">30 Hz — 33 ms</option></select></label>
         <div style="display:flex;flex-direction:column;gap:8px">
@@ -1634,6 +1636,12 @@ function drawFigure(vp, P, style, sc = 1, gunOn = true) {
   blk(head, 9.5 * b, 9 * b, 9.5 * b, plate, HF); blk(at(head, .3, 0, 3.4 * b, HF), 8 * b, 7.6 * b, 3.2 * b, body, HF);
   blk(at(head, 4.2 * b, 0, .2, HF), 1.6, 7.4 * b, 2.6 * b, c4(st.visor, 1.25), HF, 0);
   if (!gunOn || st.gun === 'none') return;
+  if (st.gunShape) { // a specific weapon (the player's current one, a bot's)
+    const h = P[9], ax = nrm(sub3(P[9], P[8])), gx = nrm([F.f[0] * .7 + ax[0] * .3, F.f[1] * .7 + ax[1] * .3, F.f[2] * .7 + ax[2] * .3]), gy = nrm(Q.cross(F.u, gx)), gz = Q.cross(gx, gy), GF = { f: gx, l: gy, u: gz }, k = .7 * b;
+    if (!gx.every(Number.isFinite) || !gy.every(Number.isFinite)) return;
+    drawGunShape(st.gunShape, (fw, lf, up, sf, sl, su, col, mesh = rbox, lit = 1) => drawSolid(vp, mesh, mul(basis(at(h, (fw - 1.5) * k, lf * k, (up + 1.2) * k, GF), GF.f, GF.l, GF.u), trs(0, 0, 0, sf * k, sl * k, su * k)), col, lit), st.gunCol, { spin: realTime / 1000 * 3, time: realTime / 1000, firing: false });
+    return;
+  }
   // the weapon in the right hand, pointing forward
   const h = P[9], ax = nrm(sub3(P[9], P[8])), gx = nrm([F.f[0] * .7 + ax[0] * .3, F.f[1] * .7 + ax[1] * .3, F.f[2] * .7 + ax[2] * .3]), gy = nrm(Q.cross(F.u, gx)), gz = Q.cross(gx, gy), GF = { f: gx, l: gy, u: gz };
   if (!gx.every(Number.isFinite) || !gy.every(Number.isFinite)) return;
@@ -1642,6 +1650,105 @@ function drawFigure(vp, P, style, sc = 1, gunOn = true) {
   if (st.gun === 'cannon') { g(3, 0, 1.5, 13 * b, 5 * b, 5 * b, gm); seg(at(h, 8 * b, 0, 1.5, GF), at(h, 16 * b, 0, 1.5, GF), 1.8 * b, gl2); g(10 * b, 0, 1.5, 1, 3, 3, c4(st.visor), 0); return; }
   if (st.gun === 'rail') { g(4, 0, 1.5, 16 * b, 3, 3.6, gm); g(4, 0, 3.2, 14 * b, 1.4, 1, c4([.4, 1, .5]), 0); return; }
   g(3, 0, 1.6, 12, 2.6, 3.4, gm); g(-2.5, 0, 0, 4, 2.2, 4.4, gl2); g(10, 0, 2, 5, 1.4, 1.4, gm); g(3, 0, -1.4, 2.4, 1.8, 3.6, gl2);
+}
+// ---------- built-in gun shapes ----------
+// Every weapon has its own silhouette. A shape is drawn through G(fw, lf, up, sizeF, sizeL, sizeU, colour, mesh, lit): fw runs forward
+// from the hand, lf to the left, up upward. The same shapes are used for the first-person gun and the gun in a figure's hand.
+const GUN_OF = { Blaster: 'blaster', Shotgun: 'shotgun', 'Super Shotgun': 'ssg', Machinegun: 'mg', Chaingun: 'cg', 'Grenade Launcher': 'gl', 'Rocket Launcher': 'rl', HyperBlaster: 'hb', Railgun: 'rail', BFG10K: 'bfg',
+  Gauntlet: 'gaunt', 'Lightning Gun': 'lg', 'Plasma Gun': 'pg', Nailgun: 'ng', 'Prox Launcher': 'prox' };
+const GUN_SHAPES = {
+  blaster(G, k) { G(6, 0, 0, 12, 2.8, 3.4, k.body); G(6, 0, 1.9, 10, 2, .8, k.dark); G(12.6, 0, 0, 1.6, 2.6, 2.6, k.glow, cyl, 0); G(7, 1.5, .2, 6, .3, 1, k.glow, rbox, 0); G(1.6, 0, -3.4, 2.4, 2.2, 5, k.grip); },
+  shotgun(G, k) { G(5, 0, 0, 9, 3, 3.8, k.gm); G(17, 0, .6, 18, 1.7, 1.7, k.gm, cyl); G(13, 0, -.9, 7, 2.6, 2.4, k.wood); G(-3.5, 0, -.8, 8, 2.4, 4.2, k.wood); G(1.2, 0, -3.4, 2.2, 2, 4.4, k.wood); G(26, 0, 1.8, .8, .6, 1, k.dark); },
+  ssg(G, k) { G(3.5, 0, 0, 8, 4.6, 4, k.gm); for (const s of [-1, 1]) G(15, s * 1.1, .6, 16, 2, 2, k.gm, cyl); G(15, 0, -.8, 13, 3.4, 1.6, k.wood); G(-4, 0, -.8, 8, 3, 4.6, k.wood); G(.8, 0, -3.6, 2.4, 2.2, 4.6, k.wood); },
+  mg(G, k, t) { G(6, 0, 0, 13, 3, 4.4, k.body); G(17, 0, .4, 10, 1.3, 1.3, k.gm, cyl); G(14.5, 0, .4, 6, 2.6, 2.6, k.dark, cyl); G(6, 0, -4.4, 2.6, 1.8, 6, k.dark); G(7, 0, 3, 7, 1, 1.4, k.dark); G(1.6, 0, -3.4, 2.4, 2.2, 5, k.grip); G(-1.5, 0, -.5, 4, 2.4, 3.4, k.dark); },
+  cg(G, k, t) { G(5, 0, 0, 12, 6.4, 6.4, k.body); for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2 + t.spin; G(16, Math.cos(a) * 1.9, Math.sin(a) * 1.9, 14, 1.1, 1.1, k.gm, cyl); }
+    for (const f of [12, 21.5]) G(f, 0, 0, 1, 5.6, 5.6, k.dark, cyl); G(5, 3.8, -1, 8, 2, 4.4, [.55, .45, .2, 1]); G(4, 0, 3.8, 6, 2.4, 1.4, k.dark); },
+  gl(G, k) { G(5, 0, 0, 7, 6.4, 6.4, k.dark, cyl); for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2; G(8.6, Math.cos(a) * 2, Math.sin(a) * 2, .4, 1.3, 1.3, k.gm, cyl); }
+    G(14, 0, .5, 12, 3.6, 3.6, k.body, cyl); G(20, 0, .5, 1.2, 4.4, 4.4, k.dark, cyl); G(.5, 0, -3.4, 2.4, 2.2, 5, k.grip); G(-2.5, 0, 0, 5, 2.4, 3.6, k.body); },
+  rl(G, k) { G(11, 0, .8, 26, 5.6, 5.6, k.body, cyl); G(-2.4, 0, .8, 2.4, 6.8, 6.8, k.dark, cyl); G(24.4, 0, .8, 1.4, 6.4, 6.4, k.dark, cyl); G(24.9, 0, .8, .4, 4.2, 4.2, [.05, .05, .05, 1], cyl, 0);
+    G(9, 0, 4.4, 6, 1.6, 2, k.dark); G(9, 0, 5.6, 1.6, 1.4, 1.4, k.glow, rbox, 0); G(3, 0, -3.4, 2.4, 2.2, 5, k.grip); G(9, 0, -2.8, 3, 1.6, 2.6, k.dark); },
+  hb(G, k, t) { G(6, 0, 0, 14, 4.4, 4.4, k.body); for (let i = 0; i < 4; i++) { const a = i / 4 * Math.PI * 2 + t.spin * .6; G(17, Math.cos(a) * 1.3, Math.sin(a) * 1.3, 10, .9, .9, k.gm, cyl); }
+    for (const f of [9, 12, 15]) G(f, 0, 0, 1, 5, 5, k.glow, cyl, 0); G(1.6, 0, -3.4, 2.4, 2.2, 5, k.grip); G(6, 0, 3, 8, 1.4, 1.2, k.dark); },
+  rail(G, k) { G(8, 0, 0, 18, 2.6, 3.2, k.body); for (const s of [-1, 1]) G(19, 0, s * 1.9, 16, 1.4, .9, k.gm); G(18, 0, 0, 14, .8, .8, k.glow, cyl, 0); for (const f of [12, 16, 20, 24]) G(f, 0, 0, .9, 3.4, 4.6, k.dark, cyl);
+    G(1.2, 0, -3.4, 2.4, 2.2, 5, k.grip); G(-3.5, 0, -.6, 7, 2, 3.4, k.dark); G(8, 0, 2.7, 6, 1, 1.4, k.dark); },
+  bfg(G, k, t) { G(6, 0, 0, 15, 8.4, 8.4, k.body); G(15, 0, 0, 4, 9.4, 9.4, k.dark, cyl); const p = 1 + .08 * Math.sin(t.time * 9); G(18.5, 0, 0, 6 * p, 6 * p, 6 * p, k.glow, sphere, 0);
+    for (const s of [-1, 1]) G(8, s * 5, 0, 10, 1.2, 6, k.dark); G(6, 0, 5, 9, 2.4, 1.6, k.dark); G(2, 0, -4.4, 2.6, 2.4, 5, k.grip); },
+  gaunt(G, k, t) { G(2, 0, 0, 7, 5.4, 4.6, k.body); G(6.4, 0, 0, 2.4, 3, 3, k.dark, cyl); const W = t.firing ? t.spin * 2 : 0; G(9.6, 0, 0, .6, 8, 8, k.metal, cyl);
+    for (let i = 0; i < 4; i++) { const a = i / 4 * Math.PI * 2 + W; G(9.6, Math.cos(a) * 3.6, Math.sin(a) * 3.6, .7, 1.4, 1.4, k.dark); } G(-1.5, 0, -3, 3, 4.4, 3, k.grip); },
+  lg(G, k, t) { G(5, 0, 0, 11, 4.4, 4.8, k.body); G(12, 0, 0, 7, 3, 3, k.gm, cyl); for (const f of [10, 12.4, 14.8]) G(f, 0, 0, 1, 4.4, 4.4, k.glow, cyl, 0);
+    for (let i = 0; i < 3; i++) { const a = i / 3 * Math.PI * 2 + .5; G(17.5, Math.cos(a) * 1.5, Math.sin(a) * 1.5, 4, .7, .7, k.metal); } G(19.6, 0, 0, 1.4, 1.4, 1.4, k.glow, sphere, 0); G(1.2, 0, -3.4, 2.4, 2.2, 5, k.grip); G(5, 0, 3.4, 7, 2.2, 1.4, k.dark); },
+  pg(G, k) { G(5, 0, 0, 12, 5.4, 5.4, k.body); G(5, 0, 3.6, 9, 2.6, 2.6, k.glow, cyl, 0); G(13, 0, 0, 5, 3, 3, k.gm, cyl); G(15.8, 0, 0, 1, 4, 4, k.dark, cyl); G(1.4, 0, -3.6, 2.4, 2.2, 5, k.grip); },
+  ng(G, k, t) { G(5, 0, 0, 12, 5.4, 5, k.body); for (let i = 0; i < 5; i++) { const a = i / 5 * Math.PI * 2 + t.spin * .4; G(15, Math.cos(a) * 1.5, Math.sin(a) * 1.5, 9, .9, .9, k.gm, cyl); } G(18.5, 0, 0, 1, 4.6, 4.6, k.dark, cyl); G(5, 3.2, -1, 6, 1.4, 3.4, k.glow, rbox, 0); G(1.4, 0, -3.6, 2.4, 2.2, 5, k.grip); },
+  prox(G, k) { G(5, 0, 0, 9, 5.6, 5.6, k.body, cyl); G(13, 0, .5, 9, 4.2, 4.2, k.gm, cyl); for (let i = 0; i < 4; i++) { const a = i / 4 * Math.PI * 2; G(17.4, Math.cos(a) * 2.2, .5 + Math.sin(a) * 2.2, 2.4, .6, .6, k.glow, rbox, 0); } G(1, 0, -3.6, 2.4, 2.2, 5, k.grip); },
+  rifle(G, k) { GUN_SHAPES.mg(G, k, { spin: 0 }); }
+};
+function gunKit(col) { // the colours a gun is drawn in, from the weapon's own colour
+  const c = col || [.45, .45, .5];
+  return { body: [c[0] * .55 + .1, c[1] * .55 + .1, c[2] * .55 + .1, 1], dark: [c[0] * .35 + .05, c[1] * .35 + .05, c[2] * .35 + .06, 1], gm: [.2, .21, .23, 1], metal: [.62, .64, .68, 1],
+    grip: [.15, .13, .12, 1], wood: [.4, .26, .14, 1], glow: [...c.map(v => Math.min(1, v * 1.5 + .2)), 1] };
+}
+const GUN_GLOW = { blaster: [1, .7, .25], hb: [1, .75, .3], rail: [.4, 1, .5], bfg: [.4, 1, .4], lg: [.6, .8, 1], pg: [.4, .6, 1], ng: [1, .6, .2], prox: [1, .3, .2], rl: [1, .3, .2], gaunt: [.8, .8, .9] };
+function drawGunShape(name, G, col, t) { const kit = gunKit(col); if (GUN_GLOW[name]) kit.glow = [...GUN_GLOW[name], 1]; (GUN_SHAPES[name] || GUN_SHAPES.mg)(G, kit, t); }
+// ---------- the lightning gun's beam ----------
+// Quake III draws the bolt as four textured ribbons crossed around the line of fire, 8 units wide, the texture repeating every 128 units
+// and scrolling toward the target. "lightning3new" is 1.32's bolt (two scrolling layers that flicker), "lightning3" the original one.
+// Without the pk3 the built-in bolt texture stands in; "particles" is the old particle arc.
+const beamP = gl && prog(gl, H + `in vec3 aPos;in vec2 aUV;uniform mat4 uVP;out vec2 vUV;void main(){vUV=aUV;gl_Position=uVP*vec4(aPos,1.);}`,
+  H + `in vec2 vUV;uniform sampler2D uTex;uniform vec4 uCol;uniform vec3 uST;out vec4 o;void main(){vec3 c=texture(uTex,vec2(vUV.x*uST.x+uST.y,vUV.y)).rgb;o=vec4(c*uCol.rgb*uCol.a,1.);}`, ['aPos', 'aUV']);
+const beamVAO = gl && gl.createVertexArray(), beamVBO = gl && gl.createBuffer();
+if (gl) { gl.bindVertexArray(beamVAO); gl.bindBuffer(gl.ARRAY_BUFFER, beamVBO); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 20, 0); gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 20, 12); gl.bindVertexArray(null); }
+const LG_TEX = {}; // style -> { tex, src }
+function boltTexture() { // a jagged white-blue bolt on black, for when the pk3's picture isn't there
+  const c = document.createElement('canvas'); c.width = 256; c.height = 32; const g = c.getContext('2d'); g.fillStyle = '#000'; g.fillRect(0, 0, 256, 32);
+  for (const [w, col] of [[7, 'rgba(60,90,255,.35)'], [3.5, 'rgba(140,170,255,.8)'], [1.4, '#fff']]) for (let pass = 0; pass < 2; pass++) {
+    let seed = 7 + pass * 31; const r = () => (seed = (seed * 16807) % 2147483647) / 2147483647; g.strokeStyle = col; g.lineWidth = w * (pass ? .6 : 1); g.beginPath(); g.moveTo(0, 16);
+    for (let x = 8; x <= 256; x += 8) g.lineTo(x, x === 256 ? 16 : 16 + (r() - .5) * (pass ? 22 : 16)); g.stroke(); }
+  return makeTex(gl, c);
+}
+function lgTex(style) {
+  if (LG_TEX[style]) return LG_TEX[style];
+  const e = LG_TEX[style] = { tex: null, src: 'built-in' }; if (!LG_TEX.builtin) LG_TEX.builtin = { tex: boltTexture(), src: 'built-in' };
+  e.tex = LG_TEX.builtin.tex;
+  if (style === 'new' || style === 'old') loadImg(style === 'new' ? 'gfx/misc/lightning3new.tga' : 'gfx/misc/lightning3.tga').then(r => {
+    if (!r) return; e.tex = r.bitmap ? makeTex(gl, r.bitmap) : makeTex(gl, r.rgba, r.w, r.h); e.src = 'pk3';
+  }).catch(() => {});
+  return e;
+}
+function resetLgTex() { for (const k of Object.keys(LG_TEX)) if (k !== 'builtin') delete LG_TEX[k]; } // new paks loaded: look for the pictures again
+function lgBeamSeg() { // where the bolt runs this frame: from the gun's barrel to whatever the shot hits
+  if (S.wset !== 'q3' || PL.dead || !W3.lgOn || !attackHeld() || W3.state !== 'ready' || (Q3W[W3.cur] || {}).name !== 'Lightning Gun') return null;
+  const { f, r, u } = aimVectors(), o = ps.origin.map(v => v / 8), eye = [o[0], o[1], o[2] + pm.viewheight];
+  const t = Q.trace(q3Muzzle(), Z3, Z3, eye.map((v, i) => v + f[i] * 768), Q.MASK_SHOT);
+  const s = S.third ? eye.map((v, i) => v + f[i] * 18 + r[i] * 8 - u[i] * 12) : eye.map((v, i) => v + f[i] * 20 + r[i] * 5.5 - u[i] * 5);
+  return { a: s, b: t.endpos };
+}
+function drawLgBeam(vp) {
+  const style = S.lgBeam || 'new'; if (style === 'particles' || style === 'off') return;
+  const seg = lgBeamSeg(); if (!seg) return;
+  const { a, b } = seg, d = sub3(b, a), len = Math.hypot(...d); if (len < 2) return;
+  const f = d.map(x => x / len), up0 = Math.abs(f[2]) < .9 ? [0, 0, 1] : [1, 0, 0], R0 = nrm(Q.cross(f, up0)), U0 = Q.cross(f, R0), v = [], hw = 4, s1 = len / 256;
+  for (let i = 0; i < 4; i++) { // four ribbons, 45 degrees apart
+    const an = i * Math.PI / 4, R = [0, 1, 2].map(k => (R0[k] * Math.cos(an) + U0[k] * Math.sin(an)) * hw);
+    const p = (q, sg) => [q[0] + R[0] * sg, q[1] + R[1] * sg, q[2] + R[2] * sg];
+    const A0 = p(a, -1), A1 = p(a, 1), B0 = p(b, -1), B1 = p(b, 1);
+    v.push(...A0, 0, 0, ...B0, s1, 0, ...B1, s1, 1, ...A0, 0, 0, ...B1, s1, 1, ...A1, 0, 1);
+  }
+  const T = lgTex(style).tex, now = realTime / 1000;
+  gl.useProgram(beamP.p); gl.bindVertexArray(beamVAO); gl.bindBuffer(gl.ARRAY_BUFFER, beamVBO); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(v), gl.STREAM_DRAW);
+  gl.uniformMatrix4fv(beamP.u.uVP, false, vp); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, T); gl.uniform1i(beamP.u.uTex, 0);
+  gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE); gl.depthMask(false); gl.disable(gl.CULL_FACE);
+  const wave = (base, amp, freq, ph = 0) => Math.max(0, Math.min(1, base + amp * Math.sin((now * freq + ph) * Math.PI * 2)));
+  if (style === 'new') { // lightningBoltNew: two layers, scrolling at different speeds, flickering
+    gl.uniform3f(beamP.u.uST, 2, -5 * now % 1, 0); gl.uniform4f(beamP.u.uCol, 1, 1, 1, wave(1, 5.1, 7.1)); gl.drawArrays(gl.TRIANGLES, 0, v.length / 5);
+    gl.uniform3f(beamP.u.uST, -1, -2 * now % 1, 0); gl.uniform4f(beamP.u.uCol, 1, 1, 1, wave(1, 8.2, 9.3, .3)); gl.drawArrays(gl.TRIANGLES, 0, v.length / 5);
+  } else if (style === 'old') { // lightningBolt
+    gl.uniform3f(beamP.u.uST, 2, -5 * now % 1, 0); gl.uniform4f(beamP.u.uCol, 1, 1, 1, wave(1, .5, 7.1)); gl.drawArrays(gl.TRIANGLES, 0, v.length / 5);
+  } else { // built-in bolt
+    gl.uniform3f(beamP.u.uST, 2, -4 * now % 1, 0); gl.uniform4f(beamP.u.uCol, .85, .9, 1, wave(.8, .25, 11)); gl.drawArrays(gl.TRIANGLES, 0, v.length / 5);
+    gl.uniform3f(beamP.u.uST, -1.3, -1.7 * now % 1, 0); gl.uniform4f(beamP.u.uCol, .6, .7, 1, wave(.6, .4, 13, .4)); gl.drawArrays(gl.TRIANGLES, 0, v.length / 5);
+  }
+  glows.push({ p: b.slice(), s: 10 + Math.random() * 6, c: [.6, .75, 1, .9] }); // where it hits
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.bindVertexArray(null);
 }
 // drones (flyer, floater, hover...) and other non-humanoids: drawn in a frame M at a size
 function drawDrone(vp, M, s, style, t) {
@@ -4315,7 +4422,7 @@ function drawBot(m, vp, shade) {
   }
   const hue = (m.hue || 0) % 5, col = [[.6, .16, .14], [.15, .35, .6], [.2, .5, .22], [.55, .4, .12], [.4, .2, .55]][hue];
   const Pp = humanPose(o, m.ryaw, [-16, -16, -24], [16, 16, 32], builtinPose(clock, { move: moving ? 1 : 0, duck: false, air: false, fire: shot < .3, pitch: 0 }));
-  drawFigure(vp, Pp, botFig(m.hue), 1, true);
+  drawFigure(vp, Pp, { ...botFig(m.hue), gunShape: ['mg', 'shotgun', 'rl'][m.wpn || 0], gunCol: [[.3, .3, .32], [.4, .3, .2], [.45, .2, .2]][m.wpn || 0] }, 1, true);
 }
 function drawItemShape(vp, M, it, time) { // built-in pickups: a medkit, a vest, a gun, an ammo crate, a glowing powerup
   const B = (x, y, z, sx, sy, sz, c, lit = 1, mesh = rbox) => drawSolid(vp, mesh, mul(M, trs(x, y, z, sx, sy, sz)), c, lit), p = [M[12], M[13], M[14]];
@@ -4455,7 +4562,7 @@ function drawPlayerBody(vp, o, shade) {
     const wv = S.wset === 'q2' && player.weps[W.cur]; if (wv) md2Draw(mainCtx, wv.inst, wv.tex, fa, fb, ft, vp, M, shade); else drawHeld(vp, mul(M, trs(6, -7, 8, 1, 1, 1)), shade);
     return;
   }
-  const P = builtinPlayerPoints(o); drawBoneBoxes(vp, P);
+  const P = builtinPlayerPoints(o), wd = curSet()[curW().cur] || {}; drawFigure(vp, P, wd.grenade ? FIG.player : { ...FIG.player, gunShape: GUN_OF[wd.name] || 'mg', gunCol: wd.col }, 1, !wd.grenade);
   const hx = nrm(sub3(P[9], P[8])), hy = nrm(Q.cross([0, 0, 1], hx)); drawHeld(vp, basis(P[9], hx, hy, Q.cross(hx, hy)), shade);
 }
 function playerAnim() {
@@ -4469,7 +4576,7 @@ function playerAnim() {
 
 // ---------- rendering ----------
 let realTime = 0, attract = false; // attract: the slow fly-around behind the title screen
-let solidFrame = -1;
+let solidFrame = -1, vmSpin = 0;
 function drawSolid(vp, mesh, M, color, lit = 1) {
   gl.useProgram(solidP.p);
   if (solidFrame !== realTime) { solidFrame = realTime; gl.uniform3fv(solidP.u.uEye, curEye); gl.uniform4fv(solidP.u['uDL[0]'], DLP); gl.uniform3fv(solidP.u['uDLC[0]'], DLC); gl.uniform1i(solidP.u.uNDL, nDL); }
@@ -4656,6 +4763,7 @@ function render(alpha, dt) {
   gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
   if (world.trans.length) { gl.useProgram(worldP.p); gl.bindVertexArray(world.vao); drawBatches(world.trans); }
   if (world.add && world.add.length) { gl.blendFunc(gl.ONE, gl.ONE); gl.useProgram(worldP.p); gl.bindVertexArray(world.vao); drawBatches(world.add); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); }
+  drawLgBeam(vp); gl.useProgram(partP.p);
   drawParticles(vp, r, u, 1);
   drawParticles(vp, r, u, 0);
   gl.disable(gl.BLEND); gl.depthMask(true);
@@ -4687,14 +4795,10 @@ function render(alpha, dt) {
       const c = [...d.col, 1], dark = [d.col[0] * .6, d.col[1] * .6, d.col[2] * .6, 1];
       solidFrame = realTime; gl.useProgram(solidP.p); gl.uniform3fv(solidP.u.uEye, Z3); gl.uniform1i(solidP.u.uNDL, 0); // view space: the eye is the origin
       if (d.grenade) { drawSolid(vproj, sphere, trs(gx, gy + 1, gz - 12, 3, 3, 3.6), [.3, .34, .26, 1]); drawSolid(vproj, cyl, mul(trs(gx, gy + 4, gz - 12, 1, 1, 1), basis(Z3, [0, 1, 0], [1, 0, 0], [0, 0, -1])), [.55, .55, .5, 1]); }
-      else { // a built-in gun: receiver, barrel and shroud, a grip, and a glowing stripe in the weapon's colour
-        const O = [gx, gy, gz - 4], G = (fw, lf, up, sf, sl, su, col, mesh = rbox, lit = 1) => drawSolid(vproj, mesh, mul(basis([O[0] - lf, O[1] + up, O[2] - fw], [0, 0, -1], [-1, 0, 0], [0, 1, 0]), trs(0, 0, 0, sf, sl, su)), col, lit);
-        const gm = [.2, .21, .23, 1], body = [d.col[0] * .55 + .1, d.col[1] * .55 + .1, d.col[2] * .55 + .1, 1], L2 = len * 2, spin = S.wset === 'q3' ? cw.cur === 1 || cw.cur === 0 : (W.cur === 4 || W.cur === 7);
-        G(len * .55, 0, 0, len * 1.15, 3.6, 4.2, body); G(len * .6, 0, 2.5, len * .95, 1.7, 1.2, dark);
-        for (const sd of [-1, 1]) G(len * .55, sd * 1.82, .3, len * .8, .25, 1, [...d.col.map(v => Math.min(1, v * 1.4 + .15)), 1], rbox, 0);
-        if (spin) { const a0 = time * (attackHeld() ? 20 : 1); for (const a of [0, 2.1, 4.2]) G(len * 1.45, Math.cos(a + a0) * 1.1, Math.sin(a + a0) * 1.1, len * 1.1, .9, .9, gm, cyl); G(L2 - .4, 0, 0, .8, 3.2, 3.2, dark, cyl); }
-        else { G(len * 1.45, 0, 0, len * 1.1, 1.8, 1.8, gm, cyl); G(L2 - .4, 0, 0, .9, 2.5, 2.5, dark, cyl); G(len * 1.3, 0, -1.9, len * .7, 1.3, 1.3, gm, cyl); }
-        G(2.4, 0, -3.4, 2.6, 2.4, 5, [.16, .14, .13, 1]); G(len * .3, 0, -2.8, 2, 1.4, 2.4, dark);
+      else { // a built-in gun, shaped like the weapon it is
+        const O = [gx + 2.5, gy + 1, gz - 2], k = .62, f = nrm([-.06, .035, -1]), l = nrm(Q.cross([0, 1, 0], f)), u = Q.cross(f, l); // turned a little inward, so you see the gun's side
+        const G = (fw, lf, up, sf, sl, su, col, mesh = rbox, lit = 1) => drawSolid(vproj, mesh, mul(basis([0, 1, 2].map(i => O[i] + (f[i] * fw + l[i] * lf + u[i] * up) * k), f, l, u), trs(0, 0, 0, sf * k, sl * k, su * k)), col, lit);
+        vmSpin = (vmSpin || 0) + (attackHeld() ? .35 : .02); drawGunShape(GUN_OF[d.name] || 'mg', G, d.col, { spin: vmSpin, time, firing: attackHeld() });
       }
       solidFrame = -1;
     }
@@ -5165,7 +5269,7 @@ function q3Lightning() {
   if (!W3.lgOn) { play('q3lgFire', .7); W3.lgOn = true; }
   lastHitFrom = s; if (t.fraction < 1 && t.hit && t.hit.takedamage) { damageEnt(t.hit, 8); if (t.hit.isMonster) bloodFx(t.endpos, t.normal, .3); }
   else if (t.fraction < 1 && !(t.surf & Q.SURF_SKY) && Math.random() < .35) fxImpact(t, 'rail');
-  fxLightning(s, t.endpos); waterEntry(s, t.endpos, .12);
+  if ((S.lgBeam || 'new') === 'particles') fxLightning(s, t.endpos); waterEntry(s, t.endpos, .12);
   W3.flashT = simTime; addLight(t.endpos, 160, [.6, .7, 1.3], .06); lastFire = simTime; noiseT = simTime; noiseP = ps.origin.map(v => v / 8); hearSound(noiseP, 1500, 'player', 'fire');
 }
 function fxLightning(a, b) {
@@ -5903,6 +6007,7 @@ $('campaign').onclick = () => loadMap('maps/base1.bsp');
 async function addFiles(list) {
   const files = [...list].filter(f => /\.(pak|zip|pk3|pkz|bsp|wal|pcx|tga|wav|png|jpg|md2|md3|skin|shader|cfg|ogg|mp3|flac)$/i.test(f.name));
   if (!files.length) { setStatus('No usable files there — I need .pak, .zip/.pk3 or .bsp files.', true); return; }
+  resetLgTex();
   files.sort((a, b) => { const pa = /\.pak$/i.test(a.name), pb = /\.pak$/i.test(b.name); return pa !== pb ? (pa ? -1 : 1) : a.name.localeCompare(b.name, undefined, { numeric: true }); });
   for (const f of files) {
     setStatus(`Reading ${f.name} (${(f.size / 1048576).toFixed(1)} MB)…`);
@@ -5990,6 +6095,7 @@ addEventListener('drop', e => { e.preventDefault(); document.body.classList.remo
 
 function bindRange(id, key, fmt) { const el = $(id), out = $(id + 'V'); el.value = S[key]; out.textContent = fmt(S[key]); el.oninput = () => { S[key] = +el.value; out.textContent = fmt(S[key]); saveS(); if (key === 'vol' && master) master.gain.value = S.vol; }; }
 bindRange('sens', 'sens', v => v.toFixed(1)); bindRange('fov', 'fov', v => v + '°'); bindRange('bright', 'bright', v => v.toFixed(1) + '×'); bindRange('vol', 'vol', v => Math.round(v * 100) + '%');
+{ const lb = $('lgBeam'); lb.value = S.lgBeam || 'new'; lb.onchange = () => { S.lgBeam = lb.value; saveS(); }; }
 const tk = $('tick'); tk.value = S.tick; tk.onchange = () => { S.tick = +tk.value; saveS(); };
 for (const [id, key, num] of [['skill', 'skill', 1], ['hurt', 'hurt', 0]]) { const el = $(id); el.value = S[key]; el.onchange = () => { S[key] = num ? +el.value : el.value; saveS(); }; }
 bindRange('music', 'music', v => Math.round(v * 100) + '%'); { const el = $('ragdoll'); el.checked = S.ragdoll; el.onchange = () => { S.ragdoll = el.checked; saveS(); }; } $('music').addEventListener('input', () => { if (musicEl) musicEl.volume = S.music; });
