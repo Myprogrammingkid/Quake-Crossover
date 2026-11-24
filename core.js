@@ -152,6 +152,8 @@ function parseQ3BSP(u8) {
   n = L[11].l / 4 | 0; b.meshverts = new Int32Array(n); for (let i = 0; i < n; i++) b.meshverts[i] = i32(L[11].o + i * 4);
   n = L[13].l / 104 | 0; b.faces = [];
   for (let i = 0; i < n; i++) { const o = L[13].o + i * 104; b.faces.push({ shader: i32(o), type: i32(o + 8), vertex: i32(o + 12), nverts: i32(o + 16), meshvert: i32(o + 20), nmesh: i32(o + 24), lm: i32(o + 28), size: [i32(o + 96), i32(o + 100)] }); }
+  n = L[12].l / 72 | 0; b.fogs = [];
+  for (let i = 0; i < n; i++) { const o = L[12].o + i * 72; b.fogs.push({ name: cstr(u8, o, 64).toLowerCase(), brush: i32(o + 64), side: i32(o + 68) }); }
   b.lightmaps = u8.subarray(L[14].o, L[14].o + L[14].l); b.numLightmaps = L[14].l / (128 * 128 * 3) | 0;
   return b;
 }

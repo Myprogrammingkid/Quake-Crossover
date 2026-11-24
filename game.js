@@ -77,9 +77,43 @@ else if(uLiquid>0){vec3 V=normalize(uEye-vW);vec2 q=vW.xy*.035;float t=uTime;
  vec3 sky=uLiquid==2?vec3(.3,.45,.2):vec3(.38,.46,.56);vec3 hv=normalize(normalize(vec3(.45,.25,.8))+V);float sp=pow(max(dot(N,hv),0.),140.)*1.6;
  c=mix(c*.85,sky,fr*.65)+sp;al=clamp(al+fr*.45,0.,.96);}
 o=vec4(min(c,vec3(1.)),al);}`, ['aPos', 'aUV', 'aLM', 'aL']);
+const shP = gl && prog(gl, H + `in vec3 aPos;in vec2 aUV;in vec2 aLM;in float aL;in vec3 aN;in vec4 aC;uniform mat4 uMVP;uniform vec3 uOff;uniform vec3 uEye;uniform float uTime;uniform int uTcGen;uniform vec3 uTV0;uniform vec3 uTV1;
+uniform int uNDef;uniform int uDT[4];uniform vec4 uDA[4];uniform vec4 uDB[4];out vec2 vUV;out vec2 vLM;out float vL;out vec3 vW;out vec4 vC;
+invariant gl_Position;
+float hh(float k){return fract(sin(k*127.1)*43758.5453);}
+float wf(int f,float x){float fr=fract(x);if(f==0)return sin(fr*6.2831853);if(f==1)return fr<.25?4.*fr:fr<.75?2.-4.*fr:4.*fr-4.;if(f==2)return fr<.5?1.:-1.;if(f==3)return fr;if(f==4)return 1.-fr;float i=floor(x);return mix(hh(i),hh(i+1.),fr)*2.-1.;}
+void main(){vec3 p=aPos;vec3 n=aN;
+for(int i=0;i<4;i++){if(i>=uNDef)break;int t=uDT[i];
+ if(t==1){float off=(p.x+p.y+p.z)*uDA[i].x;p+=n*(uDA[i].y+uDA[i].z*wf(int(uDB[i].y),uDA[i].w+off+uTime*uDB[i].x));}
+ else if(t==3){p+=n*(sin(aUV.x*uDA[i].x+uTime*uDA[i].z)*uDA[i].y);}
+ else if(t==4){p+=uDA[i].xyz*(uDA[i].w+uDB[i].x*wf(int(uDB[i].w),uDB[i].y+uTime*uDB[i].z));}
+ else if(t==2){n=normalize(n+vec3(sin(p.x*.05+uTime*uDA[i].y),sin(p.y*.05+uTime*uDA[i].y*1.3),sin(p.z*.05+uTime*uDA[i].y*.7))*uDA[i].x*4.);}}
+vW=p+uOff;vec2 uv=aUV;
+if(uTcGen==1)uv=aLM;
+else if(uTcGen==2){vec3 V=normalize(uEye-vW);float d=dot(n,V);vec3 r=n*2.*d-V;uv=vec2(.5+r.y*.5,.5-r.z*.5);}
+else if(uTcGen==3)uv=vec2(dot(p,uTV0),dot(p,uTV1));
+vUV=uv;vLM=aLM;vL=aL;vC=aC;gl_Position=uMVP*vec4(vW,1.);}`,
+  H + `in vec2 vUV;in vec2 vLM;in float vL;in vec3 vW;in vec4 vC;uniform vec4 uDL[8];uniform vec3 uDLC[8];uniform int uNDL;vec3 dyn(vec3 w){vec3 s=vec3(0.);for(int i=0;i<8;i++){if(i>=uNDL)break;float d=distance(w,uDL[i].xyz);s+=uDLC[i]*max(0.,1.-d/uDL[i].w);}return s;}
+uniform sampler2D uTex;uniform sampler2D uLMap;uniform float uBright;uniform float uTime;uniform vec3 uEye;uniform int uSrc;uniform int uFuse;uniform vec4 uCol;uniform int uVCol;uniform int uAVert;uniform float uAPortal;uniform int uAFunc;
+uniform vec3 uRS;uniform vec3 uRT;uniform vec3 uPS;uniform vec3 uPT;uniform vec4 uTurb;uniform vec3 uFogC;uniform float uFogD;uniform int uFogMode;out vec4 o;
+void main(){vec3 q=vec3(vUV,1.);vec2 uv=vec2(dot(uRS,q),dot(uRT,q));
+if(uTurb.w>0.){float now=uTurb.y+uTime*uTurb.z;uv+=uTurb.x*vec2(sin(((vW.x+vW.z)*.0009765625+now)*6.2831853),sin((vW.y*.0009765625+now)*6.2831853));}
+uv=vec2(dot(uPS,vec3(uv,1.)),dot(uPT,vec3(uv,1.)));
+vec4 c;if(uSrc==0){c=texture(uTex,uv);if(uAFunc>0){vec2 ts=vec2(textureSize(uTex,0));vec2 dd=max(abs(dFdx(uv*ts)),abs(dFdy(uv*ts)));c.a*=1.+max(0.,log2(max(max(dd.x,dd.y),1e-4)))*.25;}}
+else if(uSrc==1)c=vec4(texture(uLMap,vLM).rgb*uBright*vL,1.);else c=vec4(1.);
+vec3 m=uCol.rgb;if(uVCol==1)m*=vC.rgb*uBright;float am=uCol.a;if(uAVert==1)am*=vC.a;if(uAPortal>0.)am*=clamp(distance(uEye,vW)/uAPortal,0.,1.);
+c.rgb*=m;c.a*=am;
+if(uFuse==1)c.rgb*=texture(uLMap,vLM).rgb*uBright*vL+dyn(vW);
+if(uAFunc==1&&c.a<=.001)discard;if(uAFunc==2&&c.a>=.5)discard;if(uAFunc==3&&c.a<.5)discard;
+if(uFogMode>0){float f=clamp(distance(uEye,vW)*uFogD,0.,1.);c.rgb=uFogMode==2?c.rgb*(1.-f):mix(c.rgb,uFogC,f);}
+o=vec4(min(c.rgb,vec3(1.)),c.a);}`, ['aPos', 'aUV', 'aLM', 'aL', 'aN', 'aC']);
 const skyP = gl && prog(gl, H + `in vec3 aPos;uniform mat4 uMVP;uniform vec3 uEye;uniform float uScale;uniform vec3 uOff;out vec3 vDir;
 void main(){vec3 p=aPos*uScale+uOff;vDir=p-uEye;gl_Position=uMVP*vec4(p,1.);}`,
-  H + `in vec3 vDir;uniform float uTime;uniform int uHasSky;uniform sampler2DArray uSky;uniform sampler2D uCloud;out vec4 o;
+  H + `in vec3 vDir;uniform float uTime;uniform int uHasSky;uniform sampler2DArray uSky;uniform sampler2D uCloud;uniform sampler2D uCl1;uniform int uNCl;uniform vec4 uClS;uniform vec4 uClK;uniform vec2 uClB;out vec4 o;
+vec3 layers(vec3 col,vec3 d){if(uNCl<1||d.z<-.02)return col;float fade=smoothstep(-.02,.25,d.z);vec2 b=d.xy/(max(d.z,0.)*.55+.3);
+ for(int i=0;i<2;i++){if(i>=uNCl)break;vec2 sc=i==0?uClK.xy:uClK.zw;vec2 sl=i==0?uClS.xy:uClS.zw;vec2 uv=b*sc*.35+sl*uTime;vec4 tx=i==0?texture(uCloud,uv):texture(uCl1,uv);float m=i==0?uClB.x:uClB.y;
+  if(m<.5)col=mix(col,tx.rgb,fade);else if(m<1.5)col+=tx.rgb*fade;else if(m<2.5)col=mix(col,tx.rgb,tx.a*fade);else col*=mix(vec3(1.),tx.rgb,fade);}
+ return col;}
 float h(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
 float n(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(h(i),h(i+vec2(1,0)),f.x),mix(h(i+vec2(0,1)),h(i+vec2(1,1)),f.x),f.y);}
 float fbm(vec2 p){float s=0.,a=.5;for(int i=0;i<5;i++){s+=a*n(p);p*=2.03;a*=.5;}return s;}
@@ -89,7 +123,8 @@ if(uHasSky==1){vec3 a=abs(d);float s,t,L;
  if(a.x>=a.y&&a.x>=a.z){if(d.x>0.){L=0.;s=-d.y/a.x;t=d.z/a.x;}else{L=1.;s=d.y/a.x;t=d.z/a.x;}}
  else if(a.y>=a.z){if(d.y>0.){L=2.;s=d.x/a.y;t=d.z/a.y;}else{L=3.;s=-d.x/a.y;t=d.z/a.y;}}
  else{if(d.z>0.){L=4.;t=-d.x/a.z;s=-d.y/a.z;}else{L=5.;t=d.x/a.z;s=-d.y/a.z;}}
- o=vec4(texture(uSky,vec3((s+1.)*.5,(1.-t)*.5,L)).rgb,1.);return;}
+ o=vec4(layers(texture(uSky,vec3((s+1.)*.5,(1.-t)*.5,L)).rgb,d),1.);return;}
+if(uHasSky==3){o=vec4(layers(vec3(0.),d),1.);return;}
 float z=d.z;vec3 top=vec3(.13,.15,.2),hor=vec3(.52,.38,.27),bot=vec3(.07,.06,.05);
 vec3 c=z>0.?mix(hor,top,pow(z,.55)):mix(hor,bot,pow(-z,.4));
 if(z>0.){vec2 uv=d.xy/(z+.18)*1.4+vec2(uTime*.015,uTime*.006);float k=fbm(uv);c=mix(c,vec3(.72,.6,.5),smoothstep(.48,.85,k)*smoothstep(0.,.35,z)*.65);}
@@ -100,8 +135,8 @@ void main(){vec3 n=normalize(vN),L=normalize(vec3(.3,.6,.75)),V=normalize(uEye-v
 vec3 hemi=mix(vec3(.26,.25,.25),vec3(.52,.56,.64),n.z*.5+.5);float dif=max(dot(n,L),0.)*.62;float sp=pow(max(dot(reflect(-L,n),V),0.),20.)*.22;float rim=pow(1.-max(dot(n,V),0.),3.)*.22;
 vec3 c=uColor.rgb*(hemi+dif+s+rim)+vec3(sp);o=vec4(mix(uColor.rgb,c,uLit),uColor.a);}`, ['aPos', 'aNorm']);
 const MD2VS = H + `in vec3 aPos;in vec3 aNorm;in vec2 aUV;uniform mat4 uMVP;uniform mat4 uM;out vec2 vUV;out vec3 vN;out vec3 vW;void main(){gl_Position=uMVP*vec4(aPos,1.);vN=mat3(uM)*aNorm;vUV=aUV;vW=(uM*vec4(aPos,1.)).xyz;}`;
-const MD2FS = H + `in vec2 vUV;in vec3 vN;in vec3 vW;uniform vec4 uPow;uniform float uPowT;uniform vec4 uDL[8];uniform vec3 uDLC[8];uniform int uNDL;vec3 dyn(vec3 w){vec3 s=vec3(0.);for(int i=0;i<8;i++){if(i>=uNDL)break;float d=distance(w,uDL[i].xyz);s+=uDLC[i]*max(0.,1.-d/uDL[i].w);}return s;}uniform sampler2D uTex;uniform float uAmb;uniform float uShade;uniform vec3 uLDir;uniform int uEnv;uniform vec3 uEyeM;uniform float uCut;out vec4 o;
-void m1(){vec3 n=normalize(vN);float l=uAmb+(1.-uAmb)*max(dot(n,uLDir),0.);vec2 uv=vUV;if(uEnv==1){vec3 r=reflect(normalize(vW-uEyeM),n);uv=vec2(.5+.5*r.y,.5-.5*r.z);}vec4 tx=texture(uTex,uv);if(uCut>0.&&tx.a<uCut)discard;vec3 t=tx.rgb;if(uEnv==1){o=vec4(t*(.3+.7*l)*uShade*.8,1.);return;}o=vec4(min(t*l*uShade+t*dyn(vW),vec3(1.)),1.);}
+const MD2FS = H + `in vec2 vUV;in vec3 vN;in vec3 vW;uniform vec4 uPow;uniform float uPowT;uniform vec4 uDL[8];uniform vec3 uDLC[8];uniform int uNDL;vec3 dyn(vec3 w){vec3 s=vec3(0.);for(int i=0;i<8;i++){if(i>=uNDL)break;float d=distance(w,uDL[i].xyz);s+=uDLC[i]*max(0.,1.-d/uDL[i].w);}return s;}uniform sampler2D uTex;uniform float uAmb;uniform float uShade;uniform vec3 uLDir;uniform int uEnv;uniform vec3 uEyeM;uniform float uCut;uniform vec3 uTR;uniform vec3 uTT;uniform vec4 uMul;uniform int uOver;uniform int uLitO;out vec4 o;
+void m1(){vec3 n=normalize(vN);float l=uAmb+(1.-uAmb)*max(dot(n,uLDir),0.);vec2 uv=vUV;if(uEnv==1){vec3 r=reflect(normalize(vW-uEyeM),n);uv=vec2(.5+.5*r.y,.5-.5*r.z);}uv=vec2(dot(uTR,vec3(uv,1.)),dot(uTT,vec3(uv,1.)));vec4 tx=texture(uTex,uv);if(uCut>0.&&tx.a<uCut)discard;vec3 t=tx.rgb;if(uOver==1){t*=uMul.rgb;if(uLitO==1)t=t*l*uShade+t*dyn(vW);o=vec4(min(t,vec3(1.5)),tx.a*uMul.a);return;}if(uEnv==1){o=vec4(t*(.3+.7*l)*uShade*.8,1.);return;}o=vec4(min(t*l*uShade+t*dyn(vW),vec3(1.)),1.);}
 void main(){m1();if(uPow.a>0.){float w=.5+.5*sin(uPowT*7.+vW.z*.12+vW.x*.07+vW.y*.05);float rim=1.-abs(dot(normalize(vN),vec3(.4,.3,.866)));o.rgb=mix(o.rgb,o.rgb*(vec3(1.)+uPow.rgb*.9)+uPow.rgb*.2,uPow.a);o.rgb+=uPow.rgb*uPow.a*(.15+.55*w*(.4+rim));o.rgb=min(o.rgb,vec3(1.5));}}`;
 const partP = gl && prog(gl, H + `in vec2 aC;in vec4 aPS;in vec4 aCol;in vec2 aKS;uniform mat4 uVP;uniform vec3 uR;uniform vec3 uU;uniform vec3 uEye;out vec2 vUV;out vec4 vCol;out vec2 vKS;out float vF;
 void main(){float an=aKS.y*6.2831;vec2 c=vec2(cos(an)*aC.x-sin(an)*aC.y,sin(an)*aC.x+cos(an)*aC.y);vec3 te=uEye-aPS.xyz;float de=length(te);bool fl=aKS.x>3.5&&aKS.x<5.5;vec3 ctr=fl?aPS.xyz:aPS.xyz+te/max(de,1.)*min(aPS.w*.6,de*.5);vec3 p=ctr+(fl?vec3(c.x,c.y,0.):uR*c.x+uU*c.y)*aPS.w;gl_Position=uVP*vec4(p,1.);vUV=aC;vCol=aCol;vKS=aKS;vF=fl?1.:clamp((de-aPS.w*.5)/(aPS.w*1.5+1.),0.,1.);}`,
@@ -146,7 +181,7 @@ function sphereData(seg = 12, ring = 8) {
   for (let j = 0; j < ring; j++) for (let i = 0; i < seg; i++) { const a = P(i, j), b = P(i + 1, j), c = P(i + 1, j + 1), e = P(i, j + 1); for (const p of [a, b, c, a, c, e]) d.push(...p, ...p); }
   return d;
 }
-const cube = gl && meshPN(cubeData()), sphere = gl && meshPN(sphereData());
+const cube = gl && meshPN(cubeData()), sphere = gl && meshPN(sphereData(22, 14));
 // ---------- built-in figures ----------
 // Without model files every character is drawn from rounded parts: a soldier in plates and pads with a glowing visor, or, for the
 // non-humanoid monsters, a hovering drone or a heavy walker. Bones come from the same 16-point skeleton the ragdolls use.
@@ -165,6 +200,30 @@ function cylData(seg = 12) { // a capped cylinder along x in [-.5, .5], radius .
   return d;
 }
 const rbox = gl && meshPN(rboxData()), cyl = gl && meshPN(cylData());
+// ---- mid-poly body parts: surfaces of revolution and lofts with smooth normals ----
+function gridMesh(P, nu, nv) { // P[j][i]: row j runs along the part, i goes around it (wrapping); normals come from the neighbouring points
+  const d = [], N = [], sub = (a, c) => [a[0] - c[0], a[1] - c[1], a[2] - c[2]], cen = P.map(row => row.reduce((a, p) => [a[0] + p[0] / nu, a[1] + p[1] / nu, a[2] + p[2] / nu], [0, 0, 0]));
+  for (let j = 0; j <= nv; j++) { N[j] = []; for (let i = 0; i < nu; i++) {
+    const du = sub(P[j][(i + 1) % nu], P[j][(i + nu - 1) % nu]), dv = sub(P[Math.min(j + 1, nv)][i], P[Math.max(j - 1, 0)][i]);
+    let n = [dv[1] * du[2] - dv[2] * du[1], dv[2] * du[0] - dv[0] * du[2], dv[0] * du[1] - dv[1] * du[0]], l = Math.hypot(...n);
+    if (l < 1e-7) { const k = Math.hypot(...dv) || 1; n = dv.map(v => v / k * (j === 0 ? -1 : 1)); } else n = n.map(v => v / l);
+    const o = sub(P[j][i], cen[j]); if (n[0] * o[0] + n[1] * o[1] + n[2] * o[2] < 0 && Math.hypot(...o) > 1e-4) n = n.map(v => -v);
+    N[j][i] = n; } }
+  for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) { const i2 = (i + 1) % nu, q = [[j, i], [j, i2], [j + 1, i2], [j, i], [j + 1, i2], [j + 1, i]]; for (const [a, c] of q) d.push(...P[a][c], ...N[a][c]); }
+  return d;
+}
+function loftData(rings, nu = 22, e = 2.4) { // x forward, y left, z up in [0, 1]; rings are [z, radius forward, radius sideways, forward shift]
+  const sp = (v, p) => Math.sign(v) * Math.pow(Math.abs(v), p), P = rings.map(([z, rx, ry, cx]) => Array.from({ length: nu }, (_, i) => { const a = i / nu * Math.PI * 2; return [cx + sp(Math.cos(a), 2 / e) * rx, sp(Math.sin(a), 2 / e) * ry, z]; }));
+  return gridMesh(P, nu, rings.length - 1);
+}
+function tubeData(ratio, nu = 18, nv = 6) { // a limb section along x in [-.5, .5]: radius .5 at the start, .5 * ratio at the end, with a little muscle in the middle
+  const P = Array.from({ length: nv + 1 }, (_, j) => { const t = j / nv, r = .5 * (1 + (ratio - 1) * t) * (1 + .1 * Math.sin(Math.PI * t)); return Array.from({ length: nu }, (_, i) => { const a = i / nu * Math.PI * 2; return [t - .5, Math.cos(a) * r, Math.sin(a) * r]; }); });
+  return gridMesh(P, nu, nv);
+}
+const TORSO_RINGS = [[0, .05, .06, 0], [.04, .3, .35, 0], [.13, .42, .46, 0], [.3, .35, .37, .01], [.46, .39, .4, .02], [.62, .47, .47, .04], [.78, .45, .52, .03], [.9, .31, .42, 0], [.97, .14, .18, -.01], [1, .03, .04, -.01]];
+const HEAD_RINGS = [[0, .03, .03, .02], [.07, .24, .2, .06], [.2, .38, .3, .06], [.38, .46, .4, .03], [.58, .5, .48, 0], [.76, .47, .47, -.01], [.9, .33, .35, -.02], [.97, .16, .18, -.02], [1, .02, .02, -.02]];
+const torsoMesh = gl && meshPN(loftData(TORSO_RINGS, 24)), headMesh = gl && meshPN(loftData(HEAD_RINGS, 22, 2.2)), cylHi = gl && meshPN(cylData(20)), rboxSoft = gl && meshPN(rboxData(.62, 14));
+const TUBE_R = [1, .82, .66, .5], tubeMeshes = gl && TUBE_R.map(r => meshPN(tubeData(r)));
 const FIG = { // looks for the built-in characters; monsters are keyed by their model folder
   player: { body: [.36, .4, .3], limb: [.24, .27, .22], plate: [.52, .56, .44], boot: [.13, .12, .11], visor: [.35, .9, 1], gun: 'rifle' },
   soldier: { body: [.55, .48, .32], limb: [.38, .34, .24], plate: [.66, .6, .42], boot: [.16, .13, .1], visor: [1, .35, .2], gun: 'rifle' },
@@ -187,27 +246,41 @@ function drawFigure(vp, P, style, sc = 1, gunOn = true) {
     drawSolid(vp, cyl, mul(basis(a.map((v, i) => v + d[i] / 2), x, y, z), trs(0, 0, 0, l, r * 2, r * 2)), col); };
   const ball = (o, r, col) => drawSolid(vp, sphere, trs(o[0], o[1], o[2], r, r, r), col);
   const body = c4(st.body), limb = c4(st.limb), plate = c4(st.plate), boot = c4(st.boot), dark = c4(st.limb, .55);
-  // torso: chest, belly, belt, chest plate, backpack, shoulder pads
-  const chest = P[1].map((v, i) => (v * .6 + P[2][i] * .4)), belly = P[2].map((v, i) => (v + P[3][i]) / 2), spine = Math.hypot(...sub3(P[1], P[3]));
+  // mid-poly build: a lofted torso, tapered limbs on ball joints, a rounded helmet with a lens
+  const ell = (o, rx, ry, rz, col, frame = F, lit = 1, mesh = sphere) => drawSolid(vp, mesh, mul(basis(o, frame.f, frame.l, frame.u), trs(0, 0, 0, rx, ry, rz)), col, lit);
+  const tube = (a, c, ra, rb, col) => { if (rb > ra) { [a, c] = [c, a]; [ra, rb] = [rb, ra]; } const d = sub3(c, a), l = Math.hypot(...d); if (l < .1) return; const x = d.map(v => v / l), up = Math.abs(Q.dot(x, F.u)) < .95 ? F.u : F.f, y = nrm(Q.cross(up, x)), z = Q.cross(x, y), r = rb / ra;
+    let k = 0; for (let i = 1; i < TUBE_R.length; i++) if (Math.abs(TUBE_R[i] - r) < Math.abs(TUBE_R[k] - r)) k = i;
+    drawSolid(vp, tubeMeshes[k], mul(basis(a.map((v, i) => v + d[i] / 2), x, y, z), trs(0, 0, 0, l, ra * 2, ra * 2)), col); };
+  const chest = P[1].map((v, i) => (v * .6 + P[2][i] * .4)), spine = Math.hypot(...sub3(P[1], P[3]));
   const TF = { f: F.f, l: F.l, u: nrm(sub3(P[1], P[2])) }; if (!TF.u.every(Number.isFinite)) TF.u = F.u;
-  blk(chest, 9 * b, 15 * b, spine * .55, body, TF); blk(at(chest, 3.6 * b, 0, .5), 3.2 * b, 12 * b, spine * .42, plate, TF);
-  blk(belly, 7.5 * b, 11.5 * b, spine * .42, limb); blk(at(P[3], 0, 0, 1.5), 8.5 * b, 13 * b, 4 * b, dark); blk(at(P[3], 4.2 * b, 0, 1.5), 1.4, 3, 2.6, plate);
-  blk(at(chest, -5.8 * b, 0, .5), 4.5 * b, 10 * b, spine * .45, dark, TF); for (const s of [-1, 1]) blk(at(chest, -6.6 * b, s * 3.2 * b, -spine * .12), 2, 2.2, 2.2, c4(st.visor, .6), TF, 0);
-  for (const s of [4, 7]) { blk(at(P[s], 0, (s === 4 ? 1.2 : -1.2) * b, 1.6 * b), 7.5 * b, 6.5 * b, 4.2 * b, plate); }
-  // arms with gloves, legs with knee pads and boots
-  seg(P[4], P[5], 2.5 * b, limb); seg(P[5], P[6], 2.2 * b, limb); seg(P[7], P[8], 2.5 * b, limb); seg(P[8], P[9], 2.2 * b, limb);
-  for (const i of [5, 8]) ball(P[i], 2.5 * b, limb); for (const i of [6, 9]) ball(P[i], 2.7 * b, dark);
-  seg(P[10], P[11], 3.1 * b, body); seg(P[11], P[12], 2.7 * b, limb); seg(P[13], P[14], 3.1 * b, body); seg(P[14], P[15], 2.7 * b, limb);
-  for (const i of [11, 14]) { ball(P[i], 3 * b, limb); blk(at(P[i], 2.4 * b, 0, 0), 2.2 * b, 4.4 * b, 4.6 * b, plate); }
-  for (const i of [10, 13]) ball(P[i], 3.2 * b, body);
+  const tb = at(P[3], 0, 0, -3.2 * b, TF), th = spine + 5.2 * b;
+  drawSolid(vp, torsoMesh, mul(basis(tb, TF.f, TF.l, TF.u), trs(0, 0, 0, 10.5 * b, 17 * b, th)), body);                          // the torso itself
+  ell(at(chest, 3.9 * b, 0, .6 * b, TF), 3 * b, 6.4 * b, spine * .3, plate, TF);                                                  // chest plate, curved over the front
+  ell(at(P[2], 3.2 * b, 0, -1.6 * b, TF), 2.6 * b, 5.2 * b, spine * .17, plate, TF);                                              // belly plate
+  ell(at(chest, -5 * b, 0, -.6 * b, TF), 3.4 * b, 6.4 * b, spine * .34, c4(st.limb, .55), TF, 1, rboxSoft);                      // backpack
+  for (const s of [-1, 1]) ell(at(chest, -6.9 * b, s * 3.4 * b, -spine * .1, TF), 1.3, 1.3, 1.3, c4(st.visor, .65), TF, 0);        // pack lights
+  const belt = at(P[3], 0, 0, 1.2 * b, TF); drawSolid(vp, cylHi, mul(basis(belt, TF.u, TF.f, TF.l), trs(0, 0, 0, 2.4 * b, 15.5 * b, 11.4 * b)), c4(st.limb, .5)); ell(at(belt, 5.7 * b, 0, 0, TF), 1.4 * b, 2.2 * b, 1.6 * b, plate, TF);
+  // arms: shoulder balls with pads, tapered upper arms and forearms, gloves
+  for (const [s, e, w, side] of [[P[4], P[5], P[6], 1], [P[7], P[8], P[9], -1]]) {
+    ell(s, 3.4 * b, 3.4 * b, 3.4 * b, body); ell(at(s, -.2 * b, side * 1.3 * b, 1.7 * b), 4.8 * b, 4.3 * b, 3.3 * b, plate);
+    tube(s, e, 3 * b, 2.35 * b, limb); ell(e, 2.5 * b, 2.5 * b, 2.5 * b, limb); tube(e, w, 2.45 * b, 1.85 * b, limb);
+    ell(at(e, -1 * b, 0, 0), 2.7 * b, 2.7 * b, 2.7 * b, dark); ell(w, 2.4 * b, 2.1 * b, 2.1 * b, dark);
+  }
+  // legs: hips, thighs, knee pads, shins, boots
+  for (const [h, k, a] of [[P[10], P[11], P[12]], [P[13], P[14], P[15]]]) {
+    ell(h, 4.1 * b, 4.1 * b, 4.1 * b, body); tube(h, k, 4 * b, 3.1 * b, body); ell(k, 3.2 * b, 3.2 * b, 3.2 * b, limb);
+    ell(at(k, 2.9 * b, 0, .2 * b), 2.2 * b, 3.1 * b, 3.3 * b, plate); tube(k, a, 3.1 * b, 2.2 * b, limb);
+  }
   const FF = { f: nrm([F.f[0], F.f[1], 0]), l: nrm([F.l[0], F.l[1], 0]), u: [0, 0, 1] }; if (!FF.f.every(Number.isFinite) || !FF.l.every(Number.isFinite)) { FF.f = F.f; FF.l = F.l; FF.u = F.u; }
-  for (const i of [12, 15]) blk(at(P[i], 2.4 * b, 0, -.4, FF), 10 * b, 5.4 * b, 4.6 * b, boot, FF);
-  // neck, helmet, visor
-  seg(P[1], P[0], 2.2 * b, dark);
+  for (const i of [12, 15]) { ell(at(P[i], 2.6 * b, 0, -1.7 * b, FF), 6.4 * b, 3.5 * b, 2.9 * b, boot, FF); ell(at(P[i], 5.4 * b, 0, -2.2 * b, FF), 3.3 * b, 3.2 * b, 2.2 * b, boot, FF); ell(at(P[i], -.4 * b, 0, -.4 * b, FF), 3 * b, 3 * b, 3.1 * b, dark, FF); }
+  // neck, head: a rounded helmet over a jaw, with a glowing lens
+  tube(P[1], P[0], 2.5 * b, 2 * b, dark);
   const HF = { f: F.f, l: F.l, u: nrm(sub3(P[0], P[1])) }; if (!HF.u.every(Number.isFinite)) HF.u = F.u;
   const head = at(P[0], 0, 0, 1);
-  blk(head, 9.5 * b, 9 * b, 9.5 * b, plate, HF); blk(at(head, .3, 0, 3.4 * b, HF), 8 * b, 7.6 * b, 3.2 * b, body, HF);
-  blk(at(head, 4.2 * b, 0, .2, HF), 1.6, 7.4 * b, 2.6 * b, c4(st.visor, 1.25), HF, 0);
+  drawSolid(vp, headMesh, mul(basis(at(head, 0, 0, -4.4 * b, HF), HF.f, HF.l, HF.u), trs(0, 0, 0, 10.4 * b, 9.4 * b, 10.6 * b)), plate);
+  ell(at(head, -.9 * b, 0, 1.9 * b, HF), 5.3 * b, 4.9 * b, 3.6 * b, body, HF);                                                      // helmet cap
+  ell(at(head, 3.3 * b, 0, .3 * b, HF), 1.6 * b, 4 * b, 1.4 * b, c4(st.visor, 1.25), HF, 0);                                     // lens
+  for (const s of [-1, 1]) ell(at(head, -.4 * b, s * 4.7 * b, -.5 * b, HF), 1.2 * b, 1.6 * b, 1.9 * b, dark, HF);                  // ear pieces
   if (!gunOn || st.gun === 'none') return;
   if (st.gunShape) { // a specific weapon (the player's current one, a bot's)
     const h = P[9], ax = nrm(sub3(P[9], P[8])), gx = nrm([F.f[0] * .7 + ax[0] * .3, F.f[1] * .7 + ax[1] * .3, F.f[2] * .7 + ax[2] * .3]), gy = nrm(Q.cross(F.u, gx)), gz = Q.cross(gx, gy), GF = { f: gx, l: gy, u: gz }, k = .7 * b;
@@ -325,14 +398,17 @@ function drawLgBeam(vp) {
 }
 // drones (flyer, floater, hover...) and other non-humanoids: drawn in a frame M at a size
 function drawDrone(vp, M, s, style, t) {
-  const st = style || { body: [.45, .42, .5], plate: [.65, .6, .7], visor: [1, .4, .2] }, B = (x, y, z, sx, sy, sz, col, lit = 1, m = rbox) => drawSolid(vp, m, mul(M, trs(x * s, y * s, z * s, sx * s, sy * s, sz * s)), col, lit);
-  const flap = Math.sin((t || 0) * 18) * .35;
-  B(0, 0, 0, 1, .85, .7, c4(st.body), 1, sphere); B(-.1, 0, .32, .8, .7, .3, c4(st.plate));
-  B(.58, 0, .05, .22, .5, .22, c4(st.visor, 1.3), 0); B(.5, 0, -.35, .45, .18, .18, [.2, .2, .22, 1]);
-  for (const sgn of [-1, 1]) { const W = mul(M, mul(trs(0, sgn * .55 * s, .1 * s, 1, 1, 1), new Float32Array([1, 0, 0, 0, 0, Math.cos(flap * sgn), Math.sin(flap * sgn), 0, 0, -Math.sin(flap * sgn), Math.cos(flap * sgn), 0, 0, 0, 0, 1])));
-    drawSolid(vp, rbox, mul(W, trs(-.1 * s, sgn * .55 * s, 0, .7 * s, 1.1 * s, .08 * s)), c4(st.plate, .85)); }
-  B(-.75, 0, 0, .35, .25, .25, c4(st.body, .7));
-  glows.push({ p: [M[12] + M[0] * .7 * s, M[13] + M[1] * .7 * s, M[14] + M[2] * .7 * s + .05 * s], s: 3 + s * .06, c: [...st.visor, .7] });
+  const st = style || { body: [.45, .42, .5], plate: [.65, .6, .7], visor: [1, .4, .2] }, E = (x, y, z, rx, ry, rz, col, lit = 1, m = sphere, Mx = M) => drawSolid(vp, m, mul(Mx, trs(x * s, y * s, z * s, rx * s, ry * s, rz * s)), col, lit);
+  const flap = Math.sin((t || 0) * 18) * .35, hum = Math.sin((t || 0) * 5) * .02;
+  E(0, 0, 0, .52, .44, .36, c4(st.body)); E(-.05, 0, .13, .42, .36, .2, c4(st.plate));                        // shell and carapace
+  E(.34, 0, .02, .26, .3, .2, c4(st.plate, .9)); E(.52, 0, .03, .1, .25, .1, c4(st.visor, 1.3), 0);          // head pod and its eye
+  E(.22, 0, -.24, .26, .08, .08, [.2, .2, .22, 1], 1, cylHi); E(.5, 0, -.24, .06, .1, .1, c4(st.visor), 0);  // gun barrel
+  E(-.5, 0, 0 + hum, .24, .17, .17, c4(st.body, .7)); E(-.66, 0, 0, .06, .12, .12, c4(st.visor, 1.2), 0);    // engine and its glow
+  for (const sgn of [-1, 1]) {
+    const W = mul(M, mul(trs(0, sgn * .4 * s, .1 * s, 1, 1, 1), new Float32Array([1, 0, 0, 0, 0, Math.cos(flap * sgn), Math.sin(flap * sgn), 0, 0, -Math.sin(flap * sgn), Math.cos(flap * sgn), 0, 0, 0, 0, 1])));
+    drawSolid(vp, sphere, mul(W, trs(-.12 * s, sgn * .5 * s, 0, .32 * s, .6 * s, .035 * s)), c4(st.plate, .85)); drawSolid(vp, sphere, mul(W, trs(0, sgn * .12 * s, 0, .16 * s, .14 * s, .12 * s)), c4(st.body, .8));
+  }
+  glows.push({ p: [M[12] + M[0] * .55 * s, M[13] + M[1] * .55 * s, M[14] + M[2] * .55 * s + .03 * s], s: 3 + s * .06, c: [...st.visor, .7] });
 }
 const DRONE = { flyer: { body: [.42, .45, .52], plate: [.62, .66, .74], visor: [1, .45, .2] }, float: { body: [.45, .4, .32], plate: [.65, .58, .45], visor: [.4, 1, .5] }, hover: { body: [.5, .32, .3], plate: [.7, .48, .42], visor: [1, .9, .3] }, flipper: { body: [.3, .45, .5], plate: [.5, .65, .7], visor: [1, .3, .3] } };
 let missingTex = null;
@@ -440,7 +516,10 @@ function parseMD2(d) {
   if (flip < 0) for (const fr of frames) for (let i = 0; i < fr.nrm.length; i++) fr.nrm[i] = -fr.nrm[i];
   return { skins, corners, uv, frames, anims, n: ntri * 3 };
 }
-function makeCtx(g) { return { g, P: prog(g, MD2VS, MD2FS, MD2A), tex: new Map(), inst: new Map(), grey: null }; }
+function makeCtx(g) {
+  const P = prog(g, MD2VS, MD2FS, MD2A); g.useProgram(P.p); g.uniform3f(P.u.uTR, 1, 0, 0); g.uniform3f(P.u.uTT, 0, 1, 0); g.uniform4f(P.u.uMul, 1, 1, 1, 1); g.uniform1i(P.u.uOver, 0); g.uniform1i(P.u.uLitO, 0);
+  return { g, P, tex: new Map(), inst: new Map(), grey: null };
+}
 function md2Inst(ctx, model) {
   const g = ctx.g, vao = g.createVertexArray(); g.bindVertexArray(vao);
   const dyn = g.createBuffer(); g.bindBuffer(g.ARRAY_BUFFER, dyn); g.bufferData(g.ARRAY_BUFFER, model.n * 24, g.DYNAMIC_DRAW);
@@ -523,19 +602,27 @@ function grp(G, key, props) { let g = G.get(key); if (!g) { g = Object.assign({ 
 function addPoly(g, pts) { const base = g.v.length / 8; for (const p of pts) g.v.push(...p); for (let k = 2; k < pts.length; k++) g.i.push(base, base + k - 1, base + k); }
 function uploadWorld(G, lmTex) {
   let nv = 0, ni = 0; for (const g of G.values()) { nv += g.v.length; ni += g.i.length; }
-  const vb = new Float32Array(nv), ib = new Uint32Array(ni); let vo = 0, io = 0; const batches = [];
+  const vb = new Float32Array(nv), ib = new Uint32Array(ni), xb = new Float32Array(nv / 8 * 7); let vo = 0, io = 0; const batches = [];
   for (const g of G.values()) {
-    vb.set(g.v, vo); const base = vo / 8; for (let k = 0; k < g.i.length; k++) ib[io + k] = g.i[k] + base;
-    batches.push({ anim: g.anim, animFps: g.animFps, tex: g.tex, kind: g.kind, alpha: g.alpha, warp: g.warp, liquid: g.liquid || 0, alphaTest: g.alphaTest, texAlpha: g.texAlpha, scroll: g.scroll, model: g.model || 0, polyOff: !!g.polyOff, start: io, count: g.i.length });
+    vb.set(g.v, vo); const base = vo / 8, ng = g.v.length / 8; for (let k = 0; k < g.i.length; k++) ib[io + k] = g.i[k] + base;
+    for (let k = 0; k < ng; k++) { // per-vertex normal and colour for the shader stages
+      const o = (base + k) * 7; let nx = 0, ny = 0, nz = 1; if (g.n) { nx = g.n[k * 3]; ny = g.n[k * 3 + 1]; nz = g.n[k * 3 + 2]; const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l; }
+      xb[o] = nx; xb[o + 1] = ny; xb[o + 2] = nz; if (g.c) { xb[o + 3] = g.c[k * 4]; xb[o + 4] = g.c[k * 4 + 1]; xb[o + 5] = g.c[k * 4 + 2]; xb[o + 6] = g.c[k * 4 + 3]; } else { xb[o + 3] = xb[o + 4] = xb[o + 5] = xb[o + 6] = 1; }
+    }
+    batches.push({ anim: g.anim, animFps: g.animFps, tex: g.tex, kind: g.kind, alpha: g.alpha, warp: g.warp, liquid: g.liquid || 0, alphaTest: g.alphaTest, texAlpha: g.texAlpha, scroll: g.scroll, model: g.model || 0, polyOff: !!g.polyOff, start: io, count: g.i.length, rt: g.rt, auto: g.autoQ ? { v0: base, nv: ng, quads: g.autoQ } : null });
     vo += g.v.length; io += g.i.length;
   }
   const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
   const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, vb, gl.STATIC_DRAW);
   [3, 2, 2, 1].reduce((off, s, i) => { gl.enableVertexAttribArray(i); gl.vertexAttribPointer(i, s, gl.FLOAT, false, 32, off); return off + s * 4; }, 0);
+  const xbuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, xbuf); gl.bufferData(gl.ARRAY_BUFFER, xb, gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(4); gl.vertexAttribPointer(4, 3, gl.FLOAT, false, 28, 0); gl.enableVertexAttribArray(5); gl.vertexAttribPointer(5, 4, gl.FLOAT, false, 28, 12);
   const e = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, e); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, ib, gl.STATIC_DRAW);
   gl.bindVertexArray(null);
   const kinds = { opaque: [], sky: [], trans: [], add: [] }; for (const bt of batches) kinds[bt.kind].push(bt);
-  return { vao, lmTex, bufs: [b, e], ...kinds, tris: ni / 3, mstate: {} };
+  const bySort = (a, c) => (a.rt ? a.rt.sort : a.kind === 'trans' ? 10 : 3) - (c.rt ? c.rt.sort : c.kind === 'trans' ? 10 : 3);
+  kinds.opaque.sort(bySort); kinds.trans.sort(bySort);
+  return { vao, lmTex, bufs: [b, e, xbuf], vb, glvb: b, ...kinds, tris: ni / 3, mstate: {} };
 }
 function freeWorld(w) {
   if (!w) return; gl.deleteVertexArray(w.vao); w.bufs.forEach(b => gl.deleteBuffer(b));
@@ -701,7 +788,7 @@ function kappaMap() {
       { type: 'exit', mins: [768, 3072, 8], maxs: [896, 3168, 80], area: [256, 2240, -1, 1408, 3200, 640], deb: 0 }
     ],
     monsters: [
-      ['monster_soldier_light', -900, -300, 24, 180], ['monster_soldier_light', -620, 380, 24, 200], ['monster_soldier', -480, -520, 24, 160], ['monster_soldier', -1000, 680, 152, 270], ['monster_soldier_ss', -450, 660, 152, 200],
+      ['monster_soldier_light', -900, -300, 24, 180], ['monster_soldier_light', -540, 400, 24, 200], ['monster_soldier', -480, -520, 24, 160], ['monster_soldier', -1000, 680, 152, 270], ['monster_soldier_ss', -450, 660, 152, 200],
       ['monster_infantry', 520, 220, 24, 180], ['monster_infantry', 900, -100, 24, 150], ['monster_gunner', 420, -470, 200, 0], ['monster_berserk', 1000, 470, 24, 200], ['monster_soldier', 1060, 120, 24, 180],
       ['monster_flyer', 600, 1360, 180, 270], ['monster_flyer', 1040, 1520, 200, 250], ['monster_flyer', 700, 1640, 160, 270], ['monster_soldier_ss', 832, 1770, 24, 270],
       ['monster_soldier_ss', 520, 2480, 24, 90], ['monster_soldier_ss', 1150, 2480, 24, 90], ['monster_infantry', 352, 2720, 120, 0], ['monster_gunner', 1312, 2720, 120, 180], ['monster_tank', 832, 2980, 40, 270]
@@ -714,7 +801,7 @@ function kappaMap() {
       ['item_quad', 352, 2720, 112], ['item_armor_combat', 1312, 2620, 112], ['item_health_large', 1312, 2820, 112], ['ammo_rockets', 600, 2300, 16], ['ammo_shells', 1060, 2300, 16], ['item_health', 832, 2300, 16]
     ],
     barrels: [[-1280, -400, 0], [-1280, -360, 0], [-400, 500, 0], [-700, -700, 0], [200, 480, 0], [240, 520, 0], [1100, -520, 0], [460, 2300, 0], [1200, 2300, 0], [600, 3100, 0]],
-    spawns: [{ o: [-2200, 0, 24], yaw: 0 }, { o: [-900, 0, 24], yaw: 0 }, { o: [640, 0, 24], yaw: 90 }, { o: [832, 1760, 24], yaw: 270 }, { o: [832, 2400, 24], yaw: 90 }, { o: [-1000, 680, 152], yaw: 270 }]
+    spawns: [{ o: [-2128, 0, 24], yaw: 0 }, { o: [-900, 0, 24], yaw: 0 }, { o: [640, 0, 24], yaw: 90 }, { o: [832, 1760, 24], yaw: 270 }, { o: [832, 2400, 24], yaw: 90 }, { o: [-1000, 680, 152], yaw: 270 }]
   };
 }
 // Baked light for brush maps: every face gets a lightmap (one luxel per 32 units), lit by the map's lamps with traced shadows.
@@ -1384,7 +1471,58 @@ function respawn(i) {
   ps.origin = [Math.round(sp.o[0] * 8), Math.round(sp.o[1] * 8), Math.round((sp.o[2] + 9) * 8)];
   ps.velocity = [0, 0, 0]; ps.flags = 0; ps.time = 0;
   pm.mins = [-16, -16, -24]; pm.maxs = [16, 16, 32]; pm.viewheight = 22; vh = 22;
-  Q.initialSnapPosition(); prevOrigin = ps.origin.slice(); yaw = sp.yaw; pitch = 0; topSpeed = 0; stepAmt = 0;
+  Q.initialSnapPosition(); prevOrigin = ps.origin.slice(); yaw = sp.yaw; pitch = 0; topSpeed = 0; stepAmt = 0; SAFE.hist.length = 0; SAFE.embedded = SAFE.wedged = 0;
+}
+// ---------- unstuck ----------
+// Remembers where you last stood safely. Press U (or type "unstuck"): if you're inside geometry you are moved to the nearest clear spot,
+// otherwise you step back along your recent path; pressing again goes further back, ending at a spawn point.
+const SAFE = { hist: [], t: 0, wedged: 0, hinted: false, lastU: -1e9, back: 0, embedded: 0 };
+const hullFree = o => { const t = Q.trace(o, pm.mins, pm.maxs, o, Q.MASK_PLAYERSOLID, true); return !t.startsolid && !t.allsolid; };
+const hasFloor = o => { const t = Q.trace(o, pm.mins, pm.maxs, [o[0], o[1], o[2] - 96], Q.MASK_PLAYERSOLID, true); return !t.startsolid && !t.allsolid && t.fraction < 1 && t.normal[2] >= .7; };
+function placePlayer(o, why) {
+  ps.origin = [Math.round(o[0] * 8), Math.round(o[1] * 8), Math.round(o[2] * 8)]; ps.velocity = [0, 0, 0]; ps.flags &= ~Q.PMF_DUCKED; pm.mins = [-16, -16, -24]; pm.maxs = [16, 16, 32]; pm.viewheight = 22; vh = 22;
+  Q.initialSnapPosition(); prevOrigin = ps.origin.slice(); SAFE.wedged = 0; SAFE.embedded = 0; stepAmt = 0; toast(why);
+}
+function nearestFree(base) {
+  for (let r = 1; r <= 192; r += r < 16 ? 1 : 4) {
+    const n = Math.max(8, Math.round(r / 1.5));
+    for (const dz of [0, 4, 12, 24, 40, 64, -8, -20]) for (let k = 0; k < n; k++) {
+      const a = k / n * Math.PI * 2, o = [base[0] + Math.cos(a) * r, base[1] + Math.sin(a) * r, base[2] + dz];
+      if (hullFree(o) && hasFloor(o) && !(Q.pointContents([o[0], o[1], o[2] - 24]) & (Q.CONTENTS_LAVA | Q.CONTENTS_SLIME))) return o;
+    }
+  }
+  return null;
+}
+function unstuckPlayer(auto) {
+  if (PL.dead || !world || !running) return false;
+  const base = ps.origin.map(v => v / 8), now = simTime, again = !auto && now - SAFE.lastU < 6000; if (!auto) SAFE.lastU = now;
+  if (ps.noclip) { toast('noclip is on — press V to turn it off'); return false; }
+  if (!hullFree(base)) { const o = nearestFree(base); if (o) { placePlayer(o, 'Freed from the wall'); return true; } }
+  if (!auto) { // not inside anything: go back along the path you walked, a few seconds at a time
+    SAFE.back = again ? SAFE.back + 1 : 0;
+    const h = SAFE.hist.filter(p => Math.hypot(p.o[0] - base[0], p.o[1] - base[1]) > 24 || Math.abs(p.o[2] - base[2]) > 24), i = h.length - 1 - SAFE.back * 3;
+    if (h.length && i >= 0) { placePlayer(h[i].o, SAFE.back ? 'Further back…' : 'Back to where you were'); return true; }
+  }
+  const sp = world.spawns; if (sp && sp.length) { // nearest spawn point that is clear
+    const list = sp.map(s => s.o).filter(o => hullFree([o[0], o[1], o[2] + 9])).sort((a, b) => Math.hypot(a[0] - base[0], a[1] - base[1]) - Math.hypot(b[0] - base[0], b[1] - base[1]));
+    if (list.length) { const o = list[Math.min(SAFE.back, list.length - 1)]; placePlayer([o[0], o[1], o[2] + 9], 'Moved to a spawn point'); return true; }
+  }
+  return false;
+}
+function stuckWatch(msec) {
+  if (PL.dead || ps.noclip || !world || loadingMap) return;
+  const base = ps.origin.map(v => v / 8), xy = Math.hypot(ps.velocity[0], ps.velocity[1]) / 8;
+  const emb = !hullFree(base); SAFE.embedded = emb ? SAFE.embedded + msec : 0;
+  if (SAFE.embedded > 400) { if (!unstuckPlayer(true)) SAFE.embedded = 0; return; } // inside a wall: free yourself automatically
+  SAFE.t += msec;
+  if (SAFE.t >= 500 && !emb && pm.ground && pm.waterlevel === 0 && !(Q.pointContents([base[0], base[1], base[2] - 26]) & (Q.CONTENTS_LAVA | Q.CONTENTS_SLIME))) {
+    SAFE.t = 0; const last = SAFE.hist[SAFE.hist.length - 1];
+    if (!last || Math.hypot(last.o[0] - base[0], last.o[1] - base[1], last.o[2] - base[2]) > 40) { SAFE.hist.push({ o: base, t: simTime }); if (SAFE.hist.length > 40) SAFE.hist.shift(); }
+  }
+  const pushing = Math.abs(pm.cmd.forwardmove) > 100 || Math.abs(pm.cmd.sidemove) > 100;
+  SAFE.wedged = pushing && xy < 6 && !emb ? SAFE.wedged + msec : 0;
+  if (SAFE.wedged > 2500 && !SAFE.hinted) { SAFE.hinted = true; toast('Stuck? Press U to get unstuck', 4000); }
+  if (xy > 60) SAFE.hinted = false;
 }
 function cmdFromInput(msec) {
   const c = pm.cmd; c.msec = msec;
@@ -1487,7 +1625,7 @@ function addDecal(p, n, size, kind) {
   if (decals.length > 220) decals.shift();
   decalsDirty = true;
 }
-function decalAt(t, size, kind) { if (t && t.fraction < 1 && t.ent === -1 && !(t.surf & Q.SURF_SKY)) addDecal(t.endpos, t.normal, size, kind); }
+function decalAt(t, size, kind) { if (t && t.fraction < 1 && t.ent === -1 && !(t.surf & Q.SURF_SKY) && !(world && world.q3 && (t.surf & 0x20))) addDecal(t.endpos, t.normal, size, kind); }
 function addLight(p, r, c, life) { dlights.push({ p: p.slice(), r, c, life, age: 0 }); }
 function nearFx(p, power) {
   const o = ps.origin.map(v => v / 8), d = Math.hypot(p[0] - o[0], p[1] - o[1], p[2] - o[2]);
@@ -1513,6 +1651,7 @@ function fxBFG(p) {
   addLight(p, 650, [.4, 1.3, .4], 1.0); nearFx(p, 1.4);
 }
 function fxImpact(t, kind) {
+  if (world && world.q3 && (t.surf & 0x10)) return; // surfaceparm noimpact
   const p = t.endpos, n = t.normal;
   const sparks = kind === 'shotgun' ? 5 : kind === 'blaster' ? 26 : kind === 'rail' ? 18 : 9;
   for (let i = 0; i < sparks; i++) {
@@ -3082,6 +3221,7 @@ function tick(msec) {
     if (pm.ground && xy > 225) { stepTimer += msec; if (stepTimer >= 400) { stepTimer -= 400; play('step' + (1 + (Math.random() * 4 | 0)), 0.35); } } else stepTimer = 300;
   }
   lastWL = pm.waterlevel;
+  stuckWatch(msec);
   airTime = pm.ground || pm.waterlevel >= 2 ? 0 : airTime + msec;
   if (xy > topSpeed) topSpeed = xy;
   touchTriggers();
@@ -3158,10 +3298,15 @@ function drawSolid(vp, mesh, M, color, lit = 1) {
   gl.uniform4fv(solidP.u.uColor, color); gl.uniform1f(solidP.u.uLit, lit);
   gl.bindVertexArray(mesh.vao); gl.drawArrays(gl.TRIANGLES, 0, mesh.n);
 }
-function drawBatches(list) {
-  const ms = world.mstate;
+function drawBatches(list, inTrans) {
+  const ms = world.mstate; let cur = 0;
   for (const b of list) {
     let off = Z3; if (b.model) { const s = ms[b.model]; if (s) { if (!s.visible) continue; off = s.o; } }
+    if (b.rt) {
+      if (cur !== 2) { gl.useProgram(shP.p); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, world.lmTex); cur = 2; }
+      drawRT(b, off, inTrans); continue;
+    }
+    if (cur !== 1) { gl.useProgram(worldP.p); cur = 1; }
     gl.uniform3fv(worldP.u.uOff, off);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, b.anim ? b.anim[Math.floor(realTime / 1000 * b.animFps) % b.anim.length] : b.tex);
     gl.uniform1i(worldP.u.uWarp, b.warp ? 1 : 0); gl.uniform1f(worldP.u.uAlpha, b.alpha);
@@ -3170,6 +3315,7 @@ function drawBatches(list) {
     gl.drawElements(gl.TRIANGLES, b.count, gl.UNSIGNED_INT, b.start * 4);
     if (b.polyOff) gl.disable(gl.POLYGON_OFFSET_FILL);
   }
+  if (cur === 2) gl.useProgram(worldP.p);
 }
 function drawPlaceholder(vp, o, y) {
   const M0 = entMat(o, y, 0), part = (x, yy, z, sx, sy, sz, c) => drawSolid(vp, cube, mul(M0, trs(x, yy, z, sx, sy, sz)), c, 1);
@@ -3270,8 +3416,12 @@ function render(alpha, dt) {
   // sky
   gl.disable(gl.DEPTH_TEST); gl.depthMask(false); gl.disable(gl.CULL_FACE);
   gl.useProgram(skyP.p); gl.uniformMatrix4fv(skyP.u.uMVP, false, vp); gl.uniform3fv(skyP.u.uEye, eye); gl.uniform1f(skyP.u.uTime, time);
-  gl.uniform1i(skyP.u.uHasSky, world.skyTex ? 1 : world.skyCloud ? 2 : 0); gl.uniform1i(skyP.u.uSky, 2); gl.uniform1i(skyP.u.uCloud, 3);
-  gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, world.skyCloud || null);
+  const SL = world.skyLayers || [];
+  gl.uniform1i(skyP.u.uHasSky, world.skyTex ? 1 : world.skyCloud ? 2 : SL.length ? 3 : 0); gl.uniform1i(skyP.u.uSky, 2); gl.uniform1i(skyP.u.uCloud, 3); gl.uniform1i(skyP.u.uCl1, 4); gl.uniform1i(skyP.u.uNCl, SL.length);
+  gl.uniform4f(skyP.u.uClS, SL[0] ? SL[0].scroll[0] : 0, SL[0] ? SL[0].scroll[1] : 0, SL[1] ? SL[1].scroll[0] : 0, SL[1] ? SL[1].scroll[1] : 0);
+  gl.uniform4f(skyP.u.uClK, SL[0] ? SL[0].scale[0] : 1, SL[0] ? SL[0].scale[1] : 1, SL[1] ? SL[1].scale[0] : 1, SL[1] ? SL[1].scale[1] : 1); gl.uniform2f(skyP.u.uClB, SL[0] ? SL[0].blend : 0, SL[1] ? SL[1].blend : 0);
+  gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, SL[1] ? SL[1].tex : null);
+  gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, world.skyCloud || (SL[0] ? SL[0].tex : null));
   gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D_ARRAY, world.skyTex || null);
   gl.uniform1f(skyP.u.uScale, 100); gl.uniform3fv(skyP.u.uOff, eye); gl.bindVertexArray(cube.vao); gl.drawArrays(gl.TRIANGLES, 0, cube.n);
   gl.enable(gl.DEPTH_TEST); gl.depthMask(true);
@@ -3280,7 +3430,12 @@ function render(alpha, dt) {
   gl.useProgram(worldP.p); gl.uniformMatrix4fv(worldP.u.uMVP, false, vp); gl.uniform1f(worldP.u.uBright, S.bright); gl.uniform1f(worldP.u.uTime, time);
   gl.uniform4fv(worldP.u['uDL[0]'], DLP); gl.uniform3fv(worldP.u['uDLC[0]'], DLC); gl.uniform1i(worldP.u.uNDL, nDL); gl.uniform3fv(worldP.u.uEye, eye);
   gl.uniform1i(worldP.u.uTex, 0); gl.uniform1i(worldP.u.uLMap, 1); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, world.lmTex);
-  drawBatches(world.opaque);
+  camAxes = { r, u }; curFog = null; if (world.fogs) for (const fg of world.fogs) if ([0, 1, 2].every(k => eye[k] >= fg.mins[k] && eye[k] <= fg.maxs[k])) { curFog = fg; break; }
+  gl.useProgram(shP.p); gl.uniformMatrix4fv(shP.u.uMVP, false, vp); gl.uniform1f(shP.u.uBright, S.bright); gl.uniform1f(shP.u.uTime, realTime / 1000); gl.uniform3fv(shP.u.uEye, eye);
+  gl.uniform4fv(shP.u['uDL[0]'], DLP); gl.uniform3fv(shP.u['uDLC[0]'], DLC); gl.uniform1i(shP.u.uNDL, nDL); gl.uniform1i(shP.u.uTex, 0); gl.uniform1i(shP.u.uLMap, 1);
+  if (curFog) { gl.uniform3fv(shP.u.uFogC, curFog.color); gl.uniform1f(shP.u.uFogD, 1 / Math.max(1, curFog.dist)); }
+  gl.useProgram(worldP.p);
+  drawBatches(world.opaque, false);
   drawDecals(vp);
   const shade = 0.55 + 0.25 * S.bright;
   if (S.third && !PL.dead && !attract) { POWV = powVec(PL.quad, PL.invul); drawPlayerBody(vp, o, shade); POWV = POW0; }
@@ -3334,7 +3489,7 @@ function render(alpha, dt) {
     else if (pr.type === 'bfg') { const pu = 1 + .15 * Math.sin(time * 30); glows.push({ p: pr.p, s: 34 * pu, c: [.3, 1, .3, .7] }); glows.push({ p: pr.p, s: 14, c: [.9, 1, .9, 1] }); }
   }
   gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
-  if (world.trans.length) { gl.useProgram(worldP.p); gl.bindVertexArray(world.vao); drawBatches(world.trans); }
+  if (world.trans.length) { gl.useProgram(worldP.p); gl.bindVertexArray(world.vao); drawBatches(world.trans, true); }
   if (world.add && world.add.length) { gl.blendFunc(gl.ONE, gl.ONE); gl.useProgram(worldP.p); gl.bindVertexArray(world.vao); drawBatches(world.add); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); }
   drawLgBeam(vp); gl.useProgram(partP.p);
   drawParticles(vp, r, u, 1);
@@ -3444,11 +3599,18 @@ $('pset').onchange = e => { S.pset = e.target.value; saveS(); refreshCharacter()
 $('wset').onchange = e => { S.wset = e.target.value; saveS(); setLoop(null); W.next = W3.next = -1; W.state = W3.state = 'ready'; W3.time = 0; ensureOwnedWeapon(); updateWeaponHud(true); refreshPreview(); };
 
 // ---------- Quake III: shader scripts ----------
+// Every keyword of the .shader format is parsed; the world draws each shader as its real list of stages (see drawRT).
 const shaderDefs = new Map(); let shadersFor = -1;
 async function loadShaderScripts() {
   if (shadersFor === vfsVersion) return; shadersFor = vfsVersion; shaderDefs.clear();
-  for (const k of [...VFS.keys()].filter(k => /^scripts\/.*\.shader$/.test(k))) { const d = await vfsGet(k); if (d) try { parseShaderText(new TextDecoder('latin1').decode(d)); } catch (e) {} }
+  for (const k of [...VFS.keys()].filter(k => /^scripts\/.*\.shader$/.test(k)).sort()) { const d = await vfsGet(k); if (d) try { parseShaderText(new TextDecoder('latin1').decode(d)); } catch (e) {} }
 }
+const SORT_NAMES = { portal: 1, sky: 2, opaque: 3, decal: 4, seethrough: 5, banner: 6, underwater: 8, additive: 9, nearest: 16 };
+const STAGE_KEYS = /^(map|clampmap|animmap|videomap|alphafunc|blendfunc|depthfunc|depthwrite|detail|rgbgen|alphagen|tcgen|texgen|tcmod)$/i, GLOBAL_KEYS = /^(surfaceparm|skyparms|fogparms|cull|deformvertexes|sort|portal|polygonoffset|nomipmaps|nopicmip|entitymergable|tesssize|light|qer_\w+|q3map_\w+)$/i;
+const WAVE_FN = ['sin', 'triangle', 'square', 'sawtooth', 'inversesawtooth', 'noise'];
+const numsOf = a => a.map(Number).filter(Number.isFinite);
+const parseWave = a => ({ f: Math.max(0, WAVE_FN.indexOf((a[0] || 'sin').toLowerCase())), base: numsOf(a.slice(1))[0] || 0, amp: numsOf(a.slice(1))[1] || 0, phase: numsOf(a.slice(1))[2] || 0, freq: numsOf(a.slice(1))[3] || 0 });
+const norm = s => String(s || '').toLowerCase().replace(/\\/g, '/');
 function parseShaderText(txt) {
   txt = txt.replace(/\/\*[\s\S]*?\*\//g, '');
   let depth = 0, def = null, stage = null, pending = null;
@@ -3457,30 +3619,62 @@ function parseShaderText(txt) {
     let i = 0;
     while (i < toks.length) {
       const t = toks[i];
-      if (t === '{') { depth++; if (depth === 1) def = { name: pending, stages: [], parm: {} }; else if (depth === 2) stage = {}; i++; continue; }
+      if (t === '{') { depth++; if (depth === 1) def = { name: pending, stages: [], parm: {}, deforms: [], q3map: {} }; else if (depth === 2) stage = { tcmods: [], tcgen: 'base', src: '', dst: '', blend: '' }; i++; continue; }
       if (t === '}') { if (depth === 2 && stage && def) { def.stages.push(stage); stage = null; } else if (depth === 1 && def) { if (def.name) shaderDefs.set(def.name, finishShader(def)); def = null; } depth = Math.max(0, depth - 1); i++; continue; }
-      if (depth === 0) { pending = t.toLowerCase().replace(/\\/g, '/').replace(/"/g, ''); i++; continue; }
-      const args = []; let j = i + 1; while (j < toks.length && toks[j] !== '{' && toks[j] !== '}') args.push(toks[j++].replace(/"/g, ''));
-      const key = t.toLowerCase();
+      if (depth === 0) { pending = norm(t.replace(/"/g, '')); i++; continue; }
+      const kre = depth >= 2 ? STAGE_KEYS : GLOBAL_KEYS; // several keywords may share a line, so an argument list ends at the next keyword
+      const args = []; let j = i + 1; while (j < toks.length && toks[j] !== '{' && toks[j] !== '}' && !kre.test(toks[j])) args.push(toks[j++].replace(/"/g, ''));
+      const key = t.toLowerCase(), a0 = (args[0] || '').toLowerCase();
       if (depth === 1 && def) {
-        if (key === 'surfaceparm') def.parm[(args[0] || '').toLowerCase()] = true; else if (key === 'skyparms') def.sky = args; else if (key === 'fogparms') def.fog = true;
-        else if (key === 'qer_editorimage') def.editor = args[0]; else if (key === 'cull') def.cull = args[0]; else if (key === 'polygonoffset') def.polyOff = true;
+        if (key === 'surfaceparm') def.parm[a0] = true;
+        else if (key === 'skyparms') def.sky = args;
+        else if (key === 'fogparms') { const n = numsOf(args.filter(x => x !== '(' && x !== ')')); def.fog = true; def.fogColor = n.slice(0, 3); def.fogDist = n[3] || 1024; }
+        else if (key === 'qer_editorimage') def.editor = args[0];
+        else if (key === 'cull') def.cull = /^(none|twosided|disable)$/.test(a0) ? 'none' : /^(back|backside|backsided)$/.test(a0) ? 'back' : 'front';
+        else if (key === 'polygonoffset') def.polyOff = true;
+        else if (key === 'sort') def.sort = SORT_NAMES[a0] !== undefined ? SORT_NAMES[a0] : (Number(a0) || 0);
+        else if (key === 'portal') def.sort = def.sort || 1;
+        else if (key === 'nomipmaps') def.nomip = true;
+        else if (key === 'nopicmip' || key === 'entitymergable' || key === 'tesssize' || key === 'light' || key === 'qer_trans' || key === 'qer_nocarve' || key === 'qer_alphafunc' || key === 'qer_alphafunc') def[key] = args;
+        else if (key === 'deformvertexes') {
+          const n = numsOf(args.slice(1)), w = k => parseWave(args.slice(k));
+          if (a0 === 'wave') def.deforms.push({ t: 'wave', spread: n[0] ? 1 / n[0] : 100, w: parseWave(args.slice(2)), div: n[0] });
+          else if (a0 === 'normal') def.deforms.push({ t: 'normal', amp: n[1] || 0, freq: n[2] || 0 });
+          else if (a0 === 'bulge') def.deforms.push({ t: 'bulge', width: n[0] || 0, height: n[1] || 0, speed: n[2] || 0 });
+          else if (a0 === 'move') def.deforms.push({ t: 'move', v: n.slice(0, 3), w: parseWave(args.slice(4)) });
+          else if (a0 === 'autosprite') def.auto = 1; else if (a0 === 'autosprite2') def.auto = 2;
+          else if (/^text[0-7]$/.test(a0)) def.text = a0; else if (a0 === 'projectionshadow') def.projShadow = true;
+        } else if (/^q3map_/.test(key)) def.q3map[key.slice(6)] = args;
       } else if (depth === 2 && stage) {
-        if (key === 'map' || key === 'clampmap') stage.map = args[0]; else if (key === 'animmap') { stage.map = args[1]; stage.anim = { fps: +args[0] || 1, maps: args.slice(1) }; }
-        else if (key === 'tcgen' || key === 'texgen') { if (/^environment$/i.test(args[0])) stage.env = true; }
-        else if (key === 'blendfunc') stage.blend = (args.length === 1 ? { add: 'gl_one gl_one', filter: 'gl_dst_color gl_zero', blend: 'gl_src_alpha gl_one_minus_src_alpha' }[args[0].toLowerCase()] || args[0] : args.join(' ')).toLowerCase(); else if (key === 'alphafunc') stage.alphaTest = true;
-        else if (key === 'tcmod' && /^scroll$/i.test(args[0])) stage.scroll = [+args[1] || 0, +args[2] || 0]; else if (key === 'tcmod' && /^turb$/i.test(args[0])) stage.turb = true; else if (key === 'tcmod' && /^scale$/i.test(args[0])) stage.tscale = [+args[1] || 1, +args[2] || 1];
+        if (key === 'map' || key === 'clampmap') { stage.map = norm(args[0]); stage.clamp = key === 'clampmap'; }
+        else if (key === 'animmap') { stage.map = norm(args[1]); stage.anim = { fps: +args[0] || 1, maps: args.slice(1).map(norm) }; }
+        else if (key === 'videomap') { stage.map = '$video'; stage.video = norm(args[0]); }
+        else if (key === 'tcgen' || key === 'texgen') { stage.tcgen = a0; if (a0 === 'environment') stage.env = true; if (a0 === 'vector') stage.tcv = numsOf(args.slice(1).filter(x => x !== '(' && x !== ')')); }
+        else if (key === 'rgbgen') stage.rgb = a0 === 'wave' ? { t: 'wave', w: parseWave(args.slice(1)) } : a0 === 'const' ? { t: 'const', c: numsOf(args.slice(1).filter(x => x !== '(' && x !== ')')).slice(0, 3) } : { t: a0 };
+        else if (key === 'alphagen') stage.alpha = a0 === 'wave' ? { t: 'wave', w: parseWave(args.slice(1)) } : a0 === 'const' ? { t: 'const', a: numsOf(args.slice(1))[0] } : a0 === 'portal' ? { t: 'portal', range: numsOf(args.slice(1))[0] || 256 } : { t: a0 };
+        else if (key === 'blendfunc') {
+          const SH = { add: ['gl_one', 'gl_one'], filter: ['gl_dst_color', 'gl_zero'], blend: ['gl_src_alpha', 'gl_one_minus_src_alpha'] }, sh = args.length === 1 && SH[a0];
+          const [s, d] = sh || [a0, (args[1] || 'gl_zero').toLowerCase()]; stage.src = s; stage.dst = d; stage.blend = s + ' ' + d;
+        }
+        else if (key === 'alphafunc') { stage.alphaTest = true; stage.aFunc = args[0]; }
+        else if (key === 'depthfunc') stage.depthEq = a0 === 'equal';
+        else if (key === 'depthwrite') stage.depthWrite = true;
+        else if (key === 'detail') stage.detail = true;
+        else if (key === 'tcmod') {
+          const n = numsOf(args.slice(1)); stage.tcmods.push({ t: a0, n, w: a0 === 'stretch' ? parseWave(args.slice(1)) : null });
+          if (a0 === 'scroll') stage.scroll = [n[0] || 0, n[1] || 0]; else if (a0 === 'turb') stage.turb = true; else if (a0 === 'scale') stage.tscale = [n[0] || 1, n[1] || 1];
+        }
       }
       i = j;
     }
   }
 }
 function finishShader(def) {
-  const usable = s => s.map && !/^\$(lightmap|whiteimage)$/i.test(s.map);
+  const usable = s => s.map && !/^\$(lightmap|whiteimage|video|mirror|portalmap)$/i.test(s.map);
   // the base picture is the first stage that isn't an environment-mapped overlay; reflections are kept separately for models
   let idx = def.stages.findIndex(s => usable(s) && !s.env); if (idx < 0) idx = def.stages.findIndex(usable);
   const st = def.stages[idx], envSt = def.stages.find(s => usable(s) && s.env && s !== st);
-  const out = { name: def.name, parm: def.parm, sky: def.sky, fog: def.fog, hasStages: def.stages.length > 0, polyOff: !!def.polyOff };
+  const out = { name: def.name, parm: def.parm, sky: def.sky, fog: def.fog, fogColor: def.fogColor, fogDist: def.fogDist, hasStages: def.stages.length > 0, polyOff: !!def.polyOff, stages: def.stages, deforms: def.deforms, cull: def.cull, sort: def.sort, auto: def.auto, nomip: def.nomip, q3map: def.q3map };
   if (st) {
     out.map = st.map.toLowerCase().replace(/\\/g, '/'); const bl = st.blend || '';
     if (idx === 0) out.blend = /\badd\b|gl_one gl_one\b/.test(bl) ? 'add' : /\bblend\b|gl_src_alpha gl_one_minus_src_alpha/.test(bl) ? 'alpha' : /filter|gl_dst_color gl_zero|gl_zero gl_src_color/.test(bl) ? 'filter' : '';
@@ -3494,13 +3688,135 @@ function finishShader(def) {
 }
 const shaderImage = name => { const n = name.toLowerCase().replace(/\.(tga|jpg|png)$/, ''), d = shaderDefs.get(n) || shaderDefs.get(name.toLowerCase()); return d && d.map ? d.map : name; };
 
+// ---- runtime shaders: a parsed shader with its textures loaded and its stages simplified for drawing ----
+const GLB = { gl_one: 'ONE', gl_zero: 'ZERO', gl_dst_color: 'DST_COLOR', gl_one_minus_dst_color: 'ONE_MINUS_DST_COLOR', gl_src_alpha: 'SRC_ALPHA', gl_one_minus_src_alpha: 'ONE_MINUS_SRC_ALPHA', gl_dst_alpha: 'DST_ALPHA', gl_one_minus_dst_alpha: 'ONE_MINUS_DST_ALPHA', gl_src_color: 'SRC_COLOR', gl_one_minus_src_color: 'ONE_MINUS_SRC_COLOR', gl_src_alpha_saturate: 'SRC_ALPHA_SATURATE' };
+const DEF_FN = { wave: 1, normal: 2, bulge: 3, move: 4 };
+async function buildRT(def, name, texFor) {
+  const rt = { name, def, stages: [], deforms: [], sort: 3, auto: def ? def.auto || 0 : 0, polyOff: !!(def && def.polyOff), cull: def && def.cull };
+  const isOpaq = s => (!s.src || (s.src === 'gl_one' && s.dst === 'gl_zero'));
+  const isFilt = s => (s.src === 'gl_dst_color' && s.dst === 'gl_zero') || (s.src === 'gl_zero' && s.dst === 'gl_src_color');
+  if (!def || (!def.stages.length && !def.sky)) { const T = (await texFor(name, false)) || (def && def.map && (await texFor(def.map, false))) || getMissing(); rt.stages.push(mkStage({ tex: [T.tex], fuse: 1 })); rt.sort = def && def.sort || 3; return rt; }
+  let list = def.stages.filter(s => s.map && !/^\$(mirror|portalmap)$/.test(s.map));
+  const out = [];
+  for (let i = 0; i < list.length; i++) { // lightmap + picture pairs become one pass
+    const a = list[i], b = list[i + 1];
+    if (a.map === '$lightmap' && isOpaq(a) && b && b.map !== '$lightmap' && isFilt(b) && !b.anim) { out.push(Object.assign({}, b, { src: '', dst: '', blend: '', fuse: 1 })); i++; continue; }
+    if (b && b.map === '$lightmap' && isFilt(b) && isOpaq(a) && a.map !== '$lightmap' && !a.anim && !a.env && a.tcgen === 'base') { out.push(Object.assign({}, a, { fuse: 1 })); i++; continue; }
+    out.push(a);
+  }
+  for (const s of out) {
+    const cut = !!s.alphaTest || /src_alpha/.test(s.blend || ''), texs = [];
+    if (s.map === '$lightmap' || s.map === '$whiteimage' || s.map === '$video') { }
+    else for (const m of (s.anim ? s.anim.maps : [s.map])) { const T = await texFor(m, cut); texs.push(T ? T.tex : getMissing().tex); }
+    rt.stages.push(mkStage({ s, tex: texs, cut }));
+  }
+  for (const d of def.deforms) {
+    if (rt.deforms.length >= 4) break; const k = rt.deforms.length, A = [0, 0, 0, 0], B = [0, 0, 0, 0];
+    if (d.t === 'wave') { A[0] = d.spread; A[1] = d.w.base; A[2] = d.w.amp; A[3] = d.w.phase; B[0] = d.w.freq; B[1] = d.w.f; }
+    else if (d.t === 'normal') { A[0] = d.amp; A[1] = d.freq; }
+    else if (d.t === 'bulge') { A[0] = d.width; A[1] = d.height; A[2] = d.speed; }
+    else if (d.t === 'move') { A[0] = d.v[0] || 0; A[1] = d.v[1] || 0; A[2] = d.v[2] || 0; A[3] = d.w.base; B[0] = d.w.amp; B[1] = d.w.phase; B[2] = d.w.freq; B[3] = d.w.f; }
+    rt.deforms.push({ t: DEF_FN[d.t], A, B });
+  }
+  rt.dT = new Int32Array(4); rt.dA = new Float32Array(16); rt.dB = new Float32Array(16);
+  rt.deforms.forEach((d, k) => { rt.dT[k] = d.t; rt.dA.set(d.A, k * 4); rt.dB.set(d.B, k * 4); });
+  const first = rt.stages.find(s => s.src !== 1), blendedFirst = first && first.blended && !first.aFunc;
+  rt.sort = def.sort || (blendedFirst ? 10 : (rt.polyOff ? 4 : 3));
+  return rt;
+}
+function mkStage(o) {
+  const s = o.s || {}, st = { tex: o.tex || [], fuse: o.fuse || s.fuse || 0, clamp: !!s.clamp, fps: s.anim ? s.anim.fps : 0, tcgen: s.tcgen || 'base', tcv: s.tcv, mods: s.tcmods || [], rgb: s.rgb || { t: 'identity' }, alpha: s.alpha || { t: 'identity' }, deq: !!s.depthEq };
+  st.src = s.map === '$lightmap' ? 1 : (s.map === '$whiteimage' ? 2 : (s.map === '$video' ? 3 : 0));
+  st.sb = GLB[s.src] || 'ONE'; st.db = GLB[s.dst] || 'ZERO'; st.blended = !(st.sb === 'ONE' && st.db === 'ZERO');
+  st.aFunc = /^gt0$/i.test(s.aFunc || '') ? 1 : /^lt128$/i.test(s.aFunc || '') ? 2 : /^ge128$/i.test(s.aFunc || '') ? 3 : 0;
+  st.dw = s.depthWrite !== undefined ? true : !st.blended;
+  st.add = st.sb === 'ONE' && st.db === 'ONE'; st.lm = st.src === 1;
+  return st;
+}
+function waveEval(w, T) {
+  const x = w.phase + T * w.freq, fr = x - Math.floor(x); let v;
+  switch (w.f) { case 0: v = Math.sin(fr * 6.2831853); break; case 1: v = fr < .25 ? 4 * fr : fr < .75 ? 2 - 4 * fr : 4 * fr - 4; break; case 2: v = fr < .5 ? 1 : -1; break; case 3: v = fr; break; case 4: v = 1 - fr; break;
+    default: { const h = k => { const s = Math.sin(k * 127.1) * 43758.5453; return s - Math.floor(s); }, f = Math.floor(x); v = (h(f) + (h(f + 1) - h(f)) * (x - f)) * 2 - 1; } }
+  return w.base + w.amp * v;
+}
+const MAT_ID = [1, 0, 0, 1, 0, 0], matMul = (a, o) => [a[0] * o[0] + a[1] * o[2], a[0] * o[1] + a[1] * o[3], a[2] * o[0] + a[3] * o[2], a[2] * o[1] + a[3] * o[3], a[4] * o[0] + a[5] * o[2] + o[4], a[4] * o[1] + a[5] * o[3] + o[5]];
+function stageTC(st, T) { // tcMod chain -> matrix before the turbulence, the turbulence, matrix after it
+  let cur = MAT_ID, pre = null, turb = null;
+  for (const m of st.mods) {
+    const n = m.n; let o = null;
+    if (m.t === 'scroll') { const sx = (n[0] || 0) * T, sy = (n[1] || 0) * T; o = [1, 0, 0, 1, sx - Math.floor(sx), sy - Math.floor(sy)]; }
+    else if (m.t === 'scale') o = [n[0] === undefined ? 1 : n[0], 0, 0, n[1] === undefined ? 1 : n[1], 0, 0];
+    else if (m.t === 'rotate') { const a = -(n[0] || 0) * T * Math.PI / 180, c = Math.cos(a), s = Math.sin(a); o = [c, s, -s, c, .5 - .5 * c + .5 * s, .5 - .5 * s - .5 * c]; }
+    else if (m.t === 'stretch') { const v = waveEval(m.w, T), p = v ? 1 / v : 1; o = [p, 0, 0, p, .5 - .5 * p, .5 - .5 * p]; }
+    else if (m.t === 'transform') o = [n[0] === undefined ? 1 : n[0], n[1] || 0, n[2] || 0, n[3] === undefined ? 1 : n[3], n[4] || 0, n[5] || 0];
+    else if (m.t === 'turb' && !turb) { pre = cur; cur = MAT_ID; turb = n.length >= 4 ? [n[1], n[2], n[3]] : [n[0] || 0, 0, n[1] || 0]; continue; }
+    if (o) cur = matMul(cur, o);
+  }
+  return { pre: pre || cur, post: pre ? cur : MAT_ID, turb };
+}
+const clampSampler = gl && (() => { const s = gl.createSampler(); gl.samplerParameteri(s, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); gl.samplerParameteri(s, gl.TEXTURE_MAG_FILTER, gl.LINEAR); gl.samplerParameteri(s, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.samplerParameteri(s, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return s; })();
+let videoTex = null, curFog = null, camAxes = { r: [1, 0, 0], u: [0, 0, 1] };
+function drawRT(b, off, inTrans) {
+  const rt = b.rt, u = shP.u, T = realTime / 1000;
+  gl.uniform3fv(u.uOff, off); gl.uniform1i(u.uNDef, rt.deforms.length);
+  if (rt.deforms.length) { gl.uniform1iv(u['uDT[0]'], rt.dT); gl.uniform4fv(u['uDA[0]'], rt.dA); gl.uniform4fv(u['uDB[0]'], rt.dB); }
+  if (b.auto) autoSprites(b, rt);
+  if (b.polyOff) { gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(-1, -2); }
+  for (const st of rt.stages) {
+    const tc = stageTC(st, T), rg = st.rgb, al = st.alpha; let col = [1, 1, 1], a = 1, vcol = 0, avert = 0, aport = 0;
+    if (rg.t === 'const') col = [rg.c[0] || 0, rg.c[1] || 0, rg.c[2] || 0]; else if (rg.t === 'wave') { const v = Math.max(0, Math.min(1, waveEval(rg.w, T))); col = [v, v, v]; } else if (rg.t === 'vertex' || rg.t === 'exactvertex' || rg.t === 'lightingdiffuse') vcol = 1;
+    if (al.t === 'const') a = al.a === undefined ? 1 : al.a; else if (al.t === 'wave') a = Math.max(0, Math.min(1, waveEval(al.w, T))); else if (al.t === 'vertex') avert = 1; else if (al.t === 'portal') aport = al.range;
+    if (st.src === 0 || st.src === 3) {
+      gl.activeTexture(gl.TEXTURE0);
+      const tx = st.src === 3 ? videoFallback() : st.tex.length > 1 ? st.tex[Math.floor(T * st.fps) % st.tex.length] : st.tex[0];
+      gl.bindTexture(gl.TEXTURE_2D, tx); gl.bindSampler(0, st.clamp ? clampSampler : null);
+    }
+    gl.uniform1i(u.uSrc, st.src === 3 ? 0 : st.src); gl.uniform1i(u.uFuse, st.fuse); gl.uniform1i(u.uTcGen, st.tcgen === 'lightmap' ? 1 : st.tcgen === 'environment' ? 2 : st.tcgen === 'vector' ? 3 : 0);
+    if (st.tcgen === 'vector') { const v = st.tcv || []; gl.uniform3f(u.uTV0, v[0] || 0, v[1] || 0, v[2] || 0); gl.uniform3f(u.uTV1, v[3] || 0, v[4] || 0, v[5] || 0); }
+    const P = tc.pre, Q2 = tc.post;
+    gl.uniform3f(u.uRS, P[0], P[2], P[4]); gl.uniform3f(u.uRT, P[1], P[3], P[5]); gl.uniform3f(u.uPS, Q2[0], Q2[2], Q2[4]); gl.uniform3f(u.uPT, Q2[1], Q2[3], Q2[5]);
+    gl.uniform4f(u.uTurb, tc.turb ? tc.turb[0] : 0, tc.turb ? tc.turb[1] : 0, tc.turb ? tc.turb[2] : 0, tc.turb ? 1 : 0);
+    gl.uniform4f(u.uCol, col[0], col[1], col[2], a); gl.uniform1i(u.uVCol, vcol); gl.uniform1i(u.uAVert, avert); gl.uniform1f(u.uAPortal, aport); gl.uniform1i(u.uAFunc, st.aFunc);
+    gl.uniform1i(u.uFogMode, curFog ? (st.add ? 2 : 1) : 0);
+    if (st.blended) { gl.enable(gl.BLEND); gl.blendFunc(gl[st.sb], gl[st.db]); } else gl.disable(gl.BLEND);
+    gl.depthMask(st.dw); gl.depthFunc(st.deq ? gl.EQUAL : gl.LEQUAL);
+    gl.drawElements(gl.TRIANGLES, b.count, gl.UNSIGNED_INT, b.start * 4);
+  }
+  gl.bindSampler(0, null); gl.depthFunc(gl.LEQUAL);
+  if (b.polyOff) gl.disable(gl.POLYGON_OFFSET_FILL);
+  if (inTrans) { gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false); } else { gl.disable(gl.BLEND); gl.depthMask(true); }
+}
+function videoFallback() { if (!videoTex) { videoTex = makeTex(gl, new Uint8Array([40, 40, 48, 255]), 1, 1, {}); } return videoTex; }
+// deformVertexes autosprite / autosprite2: quads are rebuilt every frame so they face the camera
+function autoSprites(b, rt) {
+  const w = world, vb = w.vb, A = b.auto, e = curEye; if (!vb || !A) return;
+  const ax = camAxes, R = ax.r, U = ax.u;
+  for (const q of A.quads) {
+    const s = q.src, mid = [0, 1, 2].map(k => (s[0][k] + s[1][k] + s[2][k] + s[3][k]) / 4); let v;
+    if (rt.auto === 1) {
+      const rad = Math.hypot(s[0][0] - mid[0], s[0][1] - mid[1], s[0][2] - mid[2]) * .7071;
+      const l = R.map(x => x * rad), up = U.map(x => x * rad);
+      v = [[mid[0] + l[0] + up[0], mid[1] + l[1] + up[1], mid[2] + l[2] + up[2], 0, 0], [mid[0] - l[0] + up[0], mid[1] - l[1] + up[1], mid[2] - l[2] + up[2], 1, 0], [mid[0] - l[0] - up[0], mid[1] - l[1] - up[1], mid[2] - l[2] - up[2], 1, 1], [mid[0] + l[0] - up[0], mid[1] + l[1] - up[1], mid[2] + l[2] - up[2], 0, 1]];
+    } else { // autosprite2: turns around its long axis only
+      const d = (a, c) => Math.hypot(s[a][0] - s[c][0], s[a][1] - s[c][1], s[a][2] - s[c][2]), ed = [d(0, 1), d(1, 2), d(2, 3), d(3, 0)];
+      const short = ed[0] + ed[2] < ed[1] + ed[3] ? 0 : 1, a0 = short, a1 = (short + 1) % 4, b0 = (short + 2) % 4, b1 = (short + 3) % 4;
+      const m1 = [0, 1, 2].map(k => (s[a0][k] + s[a1][k]) / 2), m2 = [0, 1, 2].map(k => (s[b0][k] + s[b1][k]) / 2), axv = [m2[0] - m1[0], m2[1] - m1[1], m2[2] - m1[2]];
+      const vd = [mid[0] - e[0], mid[1] - e[1], mid[2] - e[2]]; let fw = [axv[1] * vd[2] - axv[2] * vd[1], axv[2] * vd[0] - axv[0] * vd[2], axv[0] * vd[1] - axv[1] * vd[0]]; const fl = Math.hypot(...fw) || 1, hw = ed[short] / 2; fw = fw.map(x => x / fl * hw);
+      v = []; v[a0] = [m1[0] + fw[0], m1[1] + fw[1], m1[2] + fw[2]]; v[a1] = [m1[0] - fw[0], m1[1] - fw[1], m1[2] - fw[2]]; v[b0] = [m2[0] - fw[0], m2[1] - fw[1], m2[2] - fw[2]]; v[b1] = [m2[0] + fw[0], m2[1] + fw[1], m2[2] + fw[2]];
+      for (let k = 0; k < 4; k++) { v[k][3] = s[k][3]; v[k][4] = s[k][4]; }
+    }
+    for (let k = 0; k < 4; k++) { const o = (A.v0 + q.at + k) * 8; vb[o] = v[k][0]; vb[o + 1] = v[k][1]; vb[o + 2] = v[k][2]; vb[o + 3] = v[k][3]; vb[o + 4] = v[k][4]; }
+  }
+  gl.bindBuffer(gl.ARRAY_BUFFER, w.glvb); gl.bufferSubData(gl.ARRAY_BUFFER, A.v0 * 32, vb, A.v0 * 8, A.nv * 8);
+}
+
 // ---------- Quake III: world ----------
 async function buildQ3World(path, progress) {
   const u8 = await vfsGet(path); if (!u8) throw new Error('Could not read ' + path);
   const b = Q.parseQ3BSP(u8), ents = Q.parseEntities(b.entities);
   if (!palette) await loadPalette();
   progress('shaders…'); await loadShaderScripts();
-  const texCache = new Map();
+  const texCache = new Map(), rtCache = new Map();
   const texFor = async (p, cut) => { const k = cut ? p + '|cut' : p; if (texCache.has(k)) return texCache.get(k); const img = await loadImg(p); const t = img ? { tex: makeTex(gl, img.bitmap || img.rgba, img.w, img.h, { cutout: !!cut }), w: img.w, h: img.h } : null; texCache.set(k, t); return t; };
   // lightmap pages -> atlas with 1px borders; last cell is white
   const nl = b.numLightmaps, cols = Math.ceil(Math.sqrt(nl + 1)), cell = 130; let size = 256; while (size < cols * cell) size *= 2;
@@ -3525,8 +3841,8 @@ async function buildQ3World(path, progress) {
       if (sh.surf & Q.SURF_NODRAW) continue;
       const def = shaderDefs.get(sh.name);
       if (def && def.fog) continue;
-      const V = []; // vertex -> 8 floats
-      const vtx = v => { const [lu, lv] = lmuv(f.lm, b.vlm[v * 2], b.vlm[v * 2 + 1]); const lit = f.lm >= 0 ? 1 : (b.vcol[v * 4] + b.vcol[v * 4 + 1] + b.vcol[v * 4 + 2]) / 765 * .6; return [b.vpos[v * 3], b.vpos[v * 3 + 1], b.vpos[v * 3 + 2], b.vst[v * 2], b.vst[v * 2 + 1], lu, lv, lit]; };
+      const V = []; // vertex -> position, picture uv, lightmap uv, light, colour, normal
+      const vtx = v => { const [lu, lv] = lmuv(f.lm, b.vlm[v * 2], b.vlm[v * 2 + 1]); const lit = f.lm >= 0 ? 1 : (b.vcol[v * 4] + b.vcol[v * 4 + 1] + b.vcol[v * 4 + 2]) / 765 * .6; return [b.vpos[v * 3], b.vpos[v * 3 + 1], b.vpos[v * 3 + 2], b.vst[v * 2], b.vst[v * 2 + 1], lu, lv, lit, b.vcol[v * 4] / 255, b.vcol[v * 4 + 1] / 255, b.vcol[v * 4 + 2] / 255, b.vcol[v * 4 + 3] / 255, b.vnrm[v * 3], b.vnrm[v * 3 + 1], b.vnrm[v * 3 + 2]]; };
       let idx = [];
       if (f.type === 2) {
         const t = Q.tessPatch(i => vtx(f.vertex + i), f.size[0], f.size[1], 8);
@@ -3534,18 +3850,16 @@ async function buildQ3World(path, progress) {
       } else { for (let k = 0; k < f.nverts; k++) V.push(vtx(f.vertex + k)); for (let k = 0; k < f.nmesh; k++) idx.push(b.meshverts[f.meshvert + k]); }
       if ((sh.surf & Q.SURF_SKY) || (def && (def.parm.sky || def.sky))) { if (!skyDef) skyDef = def || { name: sh.name }; const g = grp(G, 'sky' + mi, { kind: 'sky', model: mi }); addTris(g, V, idx); continue; }
       if (!def && /^textures\/common\//.test(sh.name)) continue;
-      if (def && !def.map && def.hasStages) continue;
-      const img = def && def.map ? def.map : sh.name, T = (await texFor(img, def && (def.alphaTest || def.blend === 'alpha'))) || getMissing();
       const liquid = sh.cont & Q.CONTENTS_LAVA ? 3 : sh.cont & Q.CONTENTS_SLIME ? 2 : sh.cont & Q.CONTENTS_WATER ? 1 : 0;
-      let kind = 'opaque', alpha = 1, texAlpha = false;
-      if (liquid === 1 || liquid === 2) { kind = 'trans'; alpha = liquid === 1 ? .5 : .8; }
-      else if (def && def.blend === 'add') kind = 'add';
-      else if (def && (def.blend === 'alpha' || def.blend === 'filter')) { kind = 'trans'; texAlpha = def.blend === 'alpha'; alpha = def.blend === 'filter' ? .6 : 1; }
-      else if (def && def.parm.trans && !def.alphaTest) { kind = 'trans'; alpha = .7; }
-      if (def && def.tscale) for (const v of V) { v[3] *= def.tscale[0]; v[4] *= def.tscale[1]; }
-      const polyOff = !!(def && def.polyOff);
-      let anim = null; if (def && def.anim) { anim = []; for (const m of def.anim.maps) { const f = await texFor(m, def.alphaTest || def.blend === 'alpha'); anim.push(f ? f.tex : T.tex); } }
-      const g = grp(G, `${mi}|${kind}|${img}|${liquid}|${polyOff ? 1 : 0}`, { anim, animFps: def && def.anim ? def.anim.fps : 0, tex: T.tex, kind, alpha, warp: liquid > 0 || !!(def && def.turb), liquid, alphaTest: !!(def && def.alphaTest), texAlpha, scroll: def && def.scroll, model: mi, polyOff });
+      if (!def && liquid) { // water with no script of its own keeps the built-in reflective water
+        const T = (await texFor(sh.name, false)) || getMissing(), kind = liquid === 3 ? 'opaque' : 'trans', alpha = liquid === 1 ? .5 : .8;
+        const g = grp(G, `${mi}|${kind}|${sh.name}|${liquid}`, { tex: T.tex, kind, alpha, warp: true, liquid, model: mi });
+        addTris(g, V, idx); continue;
+      }
+      let rt = rtCache.get(sh.name); if (rt === undefined) { rt = await buildRT(def, sh.name, texFor); rtCache.set(sh.name, rt); }
+      if (!rt || !rt.stages.length) continue;
+      const g = grp(G, `${mi}|${sh.name}`, { rt, kind: rt.sort > 6 ? 'trans' : 'opaque', model: mi, polyOff: rt.polyOff });
+      if (rt.auto && V.length === 4 && idx.length === 6) (g.autoQ = g.autoQ || []).push({ at: g.v.length / 8, src: V.map(v => v.slice(0, 5)) });
       addTris(g, V, idx);
     }
   }
@@ -3557,14 +3871,29 @@ async function buildQ3World(path, progress) {
   w.message = ws.message ? ws.message.replace(/\\n/g, ' ') : ''; w.music = ws.music;
   progress('sky…');
   if (skyDef && skyDef.sky && skyDef.sky[0] && skyDef.sky[0] !== '-') w.skyTex = await loadSky(s => skyDef.sky[0] + '_' + s + '.tga');
-  else if (skyDef && skyDef.cloud) { const img = await loadImg(skyDef.cloud); if (img) { w.skyCloud = makeTex(gl, img.bitmap || img.rgba, img.w, img.h); w.textures.push(w.skyCloud); } }
+  w.skyLayers = []; // cloud layers: the sky shader's own stages, drawn over the box (or alone)
+  for (const s of (skyDef && skyDef.stages) || []) {
+    if (w.skyLayers.length >= 2 || !s.map || s.map[0] === '$') continue;
+    const img = await loadImg(s.anim ? s.anim.maps[0] : s.map); if (!img) continue; const tex = makeTex(gl, img.bitmap || img.rgba, img.w, img.h); w.textures.push(tex);
+    w.skyLayers.push({ tex, scroll: s.scroll || [0, 0], scale: s.tscale || [1, 1], blend: s.blend ? (/gl_one gl_one$/.test(s.blend) ? 1 : /src_alpha/.test(s.blend) ? 2 : 3) : 0 });
+  }
+  w.fogs = []; // fog volumes (fogparms): the fog is applied while the camera is inside one
+  for (const fg of b.fogs || []) {
+    const d = shaderDefs.get(fg.name); if (!d || !d.fogColor || fg.brush < 0 || fg.brush >= b.brushFirstSide.length) continue;
+    const mins = [-1e9, -1e9, -1e9], maxs = [1e9, 1e9, 1e9];
+    for (let si = b.brushFirstSide[fg.brush]; si < b.brushFirstSide[fg.brush] + b.brushNumSides[fg.brush]; si++) { const pl = b.sidePlane[si]; for (let k = 0; k < 3; k++) { if (b.pn[pl * 3 + k] === 1) maxs[k] = b.pd[pl]; else if (b.pn[pl * 3 + k] === -1) mins[k] = -b.pd[pl]; } }
+    if (mins.every(v => v > -1e8) && maxs.every(v => v < 1e8)) w.fogs.push({ mins, maxs, color: [d.fogColor[0] || 0, d.fogColor[1] || 0, d.fogColor[2] || 0], dist: d.fogDist || 1024 });
+  }
   const yawOf = e => e.angle !== undefined ? +e.angle : e.angles ? Q.vecOf(e.angles)[1] : 0, spawns = [];
   for (const e of ents) if (e.classname === 'info_player_deathmatch' || e.classname === 'info_player_start') spawns.push({ o: Q.vecOf(e.origin), yaw: yawOf(e), name: e.targetname || '' });
   if (!spawns.length) { const m = b.models[0]; spawns.push({ o: [0, 1, 2].map(i => (m.mins[i] + m.maxs[i]) / 2), yaw: 0, name: '' }); }
   w.spawns = spawns; w.name = path.replace(/^maps\//, '').replace(/\.bsp$/i, '');
   return w;
 }
-function addTris(g, V, idx) { const base = g.v.length / 8; for (const v of V) g.v.push(...v); for (const i of idx) g.i.push(base + i); }
+function addTris(g, V, idx) {
+  const base = g.v.length / 8; for (const v of V) { for (let k = 0; k < 8; k++) g.v.push(v[k]); if (v.length > 8) { (g.c = g.c || []).push(v[8], v[9], v[10], v[11]); (g.n = g.n || []).push(v[12], v[13], v[14]); } }
+  for (const i of idx) g.i.push(base + i);
+}
 // Q3 trigger_push: AimAtTarget
 function aimAtTarget(box, target) {
   const o = [0, 1, 2].map(i => (box.mins[i] + box.maxs[i]) / 2), height = target[2] - o[2], g = 800, time = Math.sqrt(Math.max(1, height) / (.5 * g));
@@ -3656,6 +3985,7 @@ function md3Draw(ctx, inst, texs, fa, fb, t, vp, M, shade = 1, amb = .5, raw) {
     }
     g.bindBuffer(g.ARRAY_BUFFER, si.dyn); g.bufferSubData(g.ARRAY_BUFFER, 0, out);
     const tx = texs && texs[k], fx = tx && modelTexFx.get(tx), U = ctx.P.u;
+    if (fx && fx.rt) { g.bindVertexArray(si.vao); drawModelStages(g, U, si, fx.rt); return; }
     g.activeTexture(g.TEXTURE0); g.bindTexture(g.TEXTURE_2D, tx || greyTex(ctx)); g.uniform1i(U.uEnv, 0); g.uniform1f(U.uCut, fx && fx.cut ? .5 : 0);
     g.bindVertexArray(si.vao); g.drawElements(g.TRIANGLES, si.n, g.UNSIGNED_INT, 0);
     if (fx && fx.env) { // shader's tcGen environment stage: a reflection layer over the base picture
@@ -3665,6 +3995,25 @@ function md3Draw(ctx, inst, texs, fa, fb, t, vp, M, shade = 1, amb = .5, raw) {
       g.uniform1i(U.uEnv, 0); g.depthMask(true); if (!was) g.disable(g.BLEND);
     }
   });
+}
+// a model's shader script: every stage is drawn in order with its own picture, tcMod, tcGen, rgbGen, alphaGen, blendFunc and alphaFunc
+function drawModelStages(g, U, si, rt) {
+  const T = realTime / 1000, was = g.isEnabled(g.BLEND);
+  for (const st of rt.stages) {
+    if (st.src !== 0 || !st.tex.length) continue;
+    const tc = stageTC(st, T), m = matMul(tc.pre, tc.post), rg = st.rgb, al = st.alpha; let col = [1, 1, 1], a = 1, lit = 0;
+    if (rg.t === 'const') col = [rg.c[0] || 0, rg.c[1] || 0, rg.c[2] || 0]; else if (rg.t === 'wave') { const v = Math.max(0, Math.min(1, waveEval(rg.w, T))); col = [v, v, v]; } else if (/^(lightingdiffuse|vertex|exactvertex|lightingspecular)$/.test(rg.t)) lit = 1;
+    if (al.t === 'const') a = al.a === undefined ? 1 : al.a; else if (al.t === 'wave') a = Math.max(0, Math.min(1, waveEval(al.w, T)));
+    g.activeTexture(g.TEXTURE0); g.bindTexture(g.TEXTURE_2D, st.tex.length > 1 ? st.tex[Math.floor(T * st.fps) % st.tex.length] : st.tex[0]); g.bindSampler(0, st.clamp ? clampSampler : null);
+    g.uniform1i(U.uOver, 1); g.uniform1i(U.uLitO, lit); g.uniform1i(U.uEnv, st.tcgen === 'environment' ? 1 : 0); g.uniform1f(U.uCut, st.aFunc === 3 ? .5 : st.aFunc === 1 ? .004 : 0);
+    g.uniform3f(U.uTR, m[0], m[2], m[4]); g.uniform3f(U.uTT, m[1], m[3], m[5]); g.uniform4f(U.uMul, col[0], col[1], col[2], a);
+    if (st.tcgen === 'environment') g.uniform3fv(U.uEyeM, typeof curEye !== 'undefined' && curEye ? curEye : [0, 0, 0]);
+    if (st.blended) { g.enable(g.BLEND); g.blendFunc(g[st.sb], g[st.db]); } else g.disable(g.BLEND);
+    g.depthMask(st.dw); g.depthFunc(st.deq ? g.EQUAL : g.LEQUAL);
+    g.drawElements(g.TRIANGLES, si.n, g.UNSIGNED_INT, 0);
+  }
+  g.bindSampler(0, null); g.depthMask(true); g.depthFunc(g.LEQUAL); g.uniform1i(U.uOver, 0); g.uniform1i(U.uLitO, 0); g.uniform1i(U.uEnv, 0); g.uniform1f(U.uCut, 0); g.uniform3f(U.uTR, 1, 0, 0); g.uniform3f(U.uTT, 0, 1, 0); g.uniform4f(U.uMul, 1, 1, 1, 1);
+  if (was) { g.enable(g.BLEND); g.blendFunc(g.SRC_ALPHA, g.ONE_MINUS_SRC_ALPHA); } else g.disable(g.BLEND);
 }
 function md3World(model, fa, fb, t, M) { // world-space vertices per surface (for ragdoll binding)
   return model.surfaces.map(s => {
@@ -3696,7 +4045,14 @@ async function modelTexs(ctx, m, skinMap) {
     let t = null;
     for (const c of [def && def.map, raw, key, def && def.editor]) { if (c && (t = await getSkin(ctx, c))) break; }
     if (!t && key) { const st = texByStem(key.split('/').pop()); if (st) t = await getSkin(ctx, st); }
-    if (t && def && (def.env || def.alphaTest) && !modelTexFx.has(t)) modelTexFx.set(t, { cut: !!def.alphaTest, env: def.env ? await getSkin(ctx, def.env.map) : null });
+    if (t && def && !modelTexFx.has(t)) {
+      const stg = def.stages.filter(s => s.map && !/^\$/.test(s.map));
+      if (stg.length) { // the whole script, with each stage's pictures loaded
+        const rt = { stages: [] };
+        for (const s of stg) { const texs = []; for (const mp of (s.anim ? s.anim.maps : [s.map])) texs.push((await getSkin(ctx, mp)) || t); rt.stages.push(mkStage({ s, tex: texs })); }
+        modelTexFx.set(t, { rt });
+      } else if (def.env || def.alphaTest) modelTexFx.set(t, { cut: !!def.alphaTest, env: def.env ? await getSkin(ctx, def.env.map) : null });
+    }
     out.push(t);
   }
   return out;
@@ -4475,6 +4831,7 @@ addEventListener('keydown', e => {
   if (e.code === 'F9') { e.preventDefault(); const q = SAVE.mem.slots.find(x => x.label === 'Quicksave'); if (q) loadSnap(q); else toast('No quicksave yet — press F5'); return; }
   if (e.code === 'KeyV') { ps.noclip = !ps.noclip; toast(ps.noclip ? 'noclip ON' : 'noclip OFF'); }
   if (e.code === 'KeyR') { spawnIdx = (spawnIdx + 1) % world.spawns.length; respawn(spawnIdx); toast(`spawn ${spawnIdx + 1}/${world.spawns.length}`); }
+  if (e.code === 'KeyU') unstuckPlayer(false);
   if (e.code === 'KeyT') topSpeed = 0;
   if (e.code === 'KeyH') toggleThird();
   const wi = curSet().findIndex(d => d.key === e.code); if (wi >= 0) selectWeapon(wi);
@@ -4756,6 +5113,7 @@ const cvarShow = (k, v) => conPrint(`"${k}" is "${v}"`);
 const COMMANDS = {
   help: ['list commands', () => { conPrint('Commands', 'hd'); for (const [k, [d]] of Object.entries(COMMANDS)) conPrint(`  ${k.padEnd(16)} ${d}`); }],
   cmdlist: ['same as help', () => COMMANDS.help[1]([])],
+  unstuck: ['get out of geometry / step back to where you were (key: U)', () => { if (!unstuckPlayer(false)) conPrint('Nothing to do — you are not stuck.', 'dim'); }],
   clear: ['clear the console', () => { conLog.textContent = ''; }],
   echo: ['print text', a => conPrint(a.join(' '))],
   sv_cheats: ['0 or 1: allow cheat commands', a => {
