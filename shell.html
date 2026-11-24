@@ -327,6 +327,7 @@ body.touch #info{left:112px}
         <label>Sensitivity <b id="sensV"></b><input type="range" id="sens" min="0.3" max="12" step="0.1"></label>
         <label>Field of view (4:3 horizontal) <b id="fovV"></b><input type="range" id="fov" min="70" max="130" step="1"></label>
         <label>Lightmap brightness <b id="brightV"></b><input type="range" id="bright" min="1" max="4" step="0.1"></label>
+        <label title="Lightmaps: baked light per surface texel. Vertex: lighting evaluated only at vertices and blended across each polygon, with a faint retro look. Per-pixel: baked light plus dynamic lights worked out for every pixel with surface direction and a highlight.">Lighting <select id="lightMode"><option value="lightmap">Lightmaps</option><option value="vertex">Vertex lighting</option><option value="pixel">Per-pixel (fragment) lighting</option></select></label>
         <label>Volume <b id="volV"></b><input type="range" id="vol" min="0" max="1" step="0.05"></label>
         <label>Music <b id="musicV"></b><input type="range" id="music" min="0" max="1" step="0.05"></label>
         <label>Skill (which entities spawn, enemy aggression)

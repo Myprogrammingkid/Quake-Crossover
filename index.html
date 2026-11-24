@@ -327,6 +327,7 @@ body.touch #info{left:112px}
         <label>Sensitivity <b id="sensV"></b><input type="range" id="sens" min="0.3" max="12" step="0.1"></label>
         <label>Field of view (4:3 horizontal) <b id="fovV"></b><input type="range" id="fov" min="70" max="130" step="1"></label>
         <label>Lightmap brightness <b id="brightV"></b><input type="range" id="bright" min="1" max="4" step="0.1"></label>
+        <label title="Lightmaps: baked light per surface texel. Vertex: lighting evaluated only at vertices and blended across each polygon, with a faint retro look. Per-pixel: baked light plus dynamic lights worked out for every pixel with surface direction and a highlight.">Lighting <select id="lightMode"><option value="lightmap">Lightmaps</option><option value="vertex">Vertex lighting</option><option value="pixel">Per-pixel (fragment) lighting</option></select></label>
         <label>Volume <b id="volV"></b><input type="range" id="vol" min="0" max="1" step="0.05"></label>
         <label>Music <b id="musicV"></b><input type="range" id="music" min="0" max="1" step="0.05"></label>
         <label>Skill (which entities spawn, enemy aggression)
@@ -1435,7 +1436,7 @@ const Q = window.Q2, $ = id => document.getElementById(id);
 const { ps, pm } = Q;
 
 // ---------- settings ----------
-const S = { sens: 3, fov: 90, bright: 2, tick: 8, run: true, autohop: false, invert: false, vol: 0.7, music: 0.5, model: 'male', skin: 'grunt', third: false, skill: 1, hurt: 'monsters', testEnemies: true, wset: 'q2', pset: 'q2', model3: 'sarge', skin3: 'default', ragdoll: true, allWeapons: false, viewmodel: true, infAmmo: false };
+const S = { sens: 3, fov: 90, bright: 2, tick: 8, run: true, autohop: false, invert: false, vol: 0.7, music: 0.5, model: 'male', skin: 'grunt', third: false, skill: 1, hurt: 'monsters', testEnemies: true, wset: 'q2', pset: 'q2', model3: 'sarge', skin3: 'default', ragdoll: true, allWeapons: false, viewmodel: true, infAmmo: false, light: 'lightmap' };
 let MAPCAT = null;
 const BOT = { mode: 'dm', fragLimit: 0, timeLimit: 0, over: false, startT: 0, roster: [], on: false, pending: 0, bots: [], frags: 0, deaths: 0, count: 3, lastShooter: null, shooterT: 0, log: [], plan: null, planT: 0 };
 const AMMO = { bullets: 0, shells: 0, grenades: 0, rockets: 0, cells: 0, slugs: 0, lightning: 0, bfgam: 0, nails: 0, mines: 0, belt: 0 };
@@ -1492,14 +1493,15 @@ function makeTex(g, src, w, h, opts = {}) {
   }
   return t;
 }
-const H = '#version 300 es\nprecision highp float;\nprecision highp sampler2DArray;\n';
-const worldP = gl && prog(gl, H + `in vec3 aPos;in vec2 aUV;in vec2 aLM;in float aL;uniform mat4 uMVP;uniform vec3 uOff;out vec2 vUV;out vec2 vLM;out float vL;out vec3 vW;
-void main(){vW=aPos+uOff;gl_Position=uMVP*vec4(vW,1.);vUV=aUV;vLM=aLM;vL=aL;}`,
-  H + `in vec2 vUV;in vec2 vLM;in float vL;in vec3 vW;uniform vec4 uDL[8];uniform vec3 uDLC[8];uniform int uNDL;vec3 dyn(vec3 w){vec3 s=vec3(0.);for(int i=0;i<8;i++){if(i>=uNDL)break;float d=distance(w,uDL[i].xyz);s+=uDLC[i]*max(0.,1.-d/uDL[i].w);}return s;}uniform sampler2D uTex;uniform sampler2D uLMap;uniform float uBright;uniform float uAlpha;uniform float uTime;uniform int uWarp;uniform int uLiquid;uniform float uAlphaTest;uniform int uTexAlpha;uniform vec2 uScroll;uniform vec3 uEye;out vec4 o;
+const LMODE = () => S.light === 'vertex' ? 1 : S.light === 'pixel' ? 2 : 0;
+const H = '#version 300 es\nprecision highp float;\nprecision highp sampler2DArray;\nprecision highp int;\n';
+const worldP = gl && prog(gl, H + `in vec3 aPos;in vec2 aUV;in vec2 aLM;in float aL;uniform mat4 uMVP;uniform vec3 uOff;out vec2 vUV;out vec2 vLM;out float vL;out vec3 vW;out vec3 vLC;out vec3 vDV;uniform sampler2D uLMap;uniform int uLMode;uniform vec4 uDL[8];uniform vec3 uDLC[8];uniform int uNDL;vec3 dyn(vec3 w){vec3 s=vec3(0.);for(int i=0;i<8;i++){if(i>=uNDL)break;float d=distance(w,uDL[i].xyz);s+=uDLC[i]*max(0.,1.-d/uDL[i].w);}return s;}
+void main(){vW=aPos+uOff;gl_Position=uMVP*vec4(vW,1.);vUV=aUV;vLM=aLM;vL=aL;vLC=vec3(0.);vDV=vec3(0.);if(uLMode==1){vLC=textureLod(uLMap,aLM,0.).rgb;vDV=dyn(vW);}}`,
+  H + `in vec2 vUV;in vec2 vLM;in float vL;in vec3 vW;in vec3 vLC;in vec3 vDV;uniform int uLMode;uniform vec3 uEye;uniform vec4 uDL[8];uniform vec3 uDLC[8];uniform int uNDL;vec3 dyn(vec3 w){vec3 s=vec3(0.);for(int i=0;i<8;i++){if(i>=uNDL)break;float d=distance(w,uDL[i].xyz);s+=uDLC[i]*max(0.,1.-d/uDL[i].w);}return s;}vec3 dynM(vec3 w){if(uLMode==1)return vDV;if(uLMode!=2)return dyn(w);vec3 N=normalize(cross(dFdx(w),dFdy(w)));vec3 V=normalize(uEye-w);if(dot(N,V)<0.)N=-N;vec3 s=vec3(0.);for(int i=0;i<8;i++){if(i>=uNDL)break;vec3 L=uDL[i].xyz-w;float d=length(L);L/=max(d,1e-3);float at=max(0.,1.-d/uDL[i].w);float nl=max(0.,dot(N,L));vec3 H=normalize(L+V);s+=uDLC[i]*at*(nl*1.25+pow(max(dot(N,H),0.),28.)*.3*nl);}return s;}uniform sampler2D uTex;uniform sampler2D uLMap;uniform float uBright;uniform float uAlpha;uniform float uTime;uniform int uWarp;uniform int uLiquid;uniform float uAlphaTest;uniform int uTexAlpha;uniform vec2 uScroll;out vec4 o;
 void main(){vec2 uv=vUV+uScroll*uTime;vec3 l;
-if(uWarp==1){uv+=0.125*vec2(sin(vUV.y*8.+uTime),sin(vUV.x*8.+uTime));l=vec3(vL*uBright);}else{l=texture(uLMap,vLM).rgb*uBright*vL;}
+if(uWarp==1){uv+=0.125*vec2(sin(vUV.y*8.+uTime),sin(vUV.x*8.+uTime));l=vec3(vL*uBright);}else{l=(uLMode==1?vLC:texture(uLMap,vLM).rgb)*uBright*vL;}
 vec4 tx=texture(uTex,uv);if(uAlphaTest>0.){vec2 ts=vec2(textureSize(uTex,0));vec2 dd=max(abs(dFdx(uv*ts)),abs(dFdy(uv*ts)));tx.a*=1.+max(0.,log2(max(max(dd.x,dd.y),1e-4)))*.25;if(tx.a<uAlphaTest)discard;}
-vec3 c=tx.rgb*(l+dyn(vW));float al=uAlpha*(uTexAlpha==1?tx.a:1.);
+vec3 c=tx.rgb*(l+dynM(vW));float al=uAlpha*(uTexAlpha==1?tx.a:1.);
 if(uLiquid==3){c=tx.rgb*(1.25+.15*sin(uTime*2.+vW.x*.02+vW.y*.015));al=1.;}
 else if(uLiquid>0){vec3 V=normalize(uEye-vW);vec2 q=vW.xy*.035;float t=uTime;
  vec3 N=normalize(vec3(sin(q.x*3.1+t*1.3)*.07+sin(q.y*5.3-t*.9)*.05+sin((q.x+q.y)*8.+t*2.1)*.03,cos(q.y*3.7+t*1.1)*.07+cos(q.x*4.3-t*1.7)*.05+cos((q.x-q.y)*7.+t*1.9)*.03,1.));
@@ -1508,7 +1510,7 @@ else if(uLiquid>0){vec3 V=normalize(uEye-vW);vec2 q=vW.xy*.035;float t=uTime;
  c=mix(c*.85,sky,fr*.65)+sp;al=clamp(al+fr*.45,0.,.96);}
 o=vec4(min(c,vec3(1.)),al);}`, ['aPos', 'aUV', 'aLM', 'aL']);
 const shP = gl && prog(gl, H + `in vec3 aPos;in vec2 aUV;in vec2 aLM;in float aL;in vec3 aN;in vec4 aC;uniform mat4 uMVP;uniform vec3 uOff;uniform vec3 uEye;uniform float uTime;uniform int uTcGen;uniform vec3 uTV0;uniform vec3 uTV1;
-uniform int uNDef;uniform int uDT[4];uniform vec4 uDA[4];uniform vec4 uDB[4];out vec2 vUV;out vec2 vLM;out float vL;out vec3 vW;out vec4 vC;
+uniform sampler2D uLMap;uniform int uLMode;out vec3 vLC;out vec3 vDV;uniform vec4 uDL[8];uniform vec3 uDLC[8];uniform int uNDL;vec3 dyn(vec3 w){vec3 s=vec3(0.);for(int i=0;i<8;i++){if(i>=uNDL)break;float d=distance(w,uDL[i].xyz);s+=uDLC[i]*max(0.,1.-d/uDL[i].w);}return s;}uniform int uNDef;uniform int uDT[4];uniform vec4 uDA[4];uniform vec4 uDB[4];out vec2 vUV;out vec2 vLM;out float vL;out vec3 vW;out vec4 vC;
 invariant gl_Position;
 float hh(float k){return fract(sin(k*127.1)*43758.5453);}
 float wf(int f,float x){float fr=fract(x);if(f==0)return sin(fr*6.2831853);if(f==1)return fr<.25?4.*fr:fr<.75?2.-4.*fr:4.*fr-4.;if(f==2)return fr<.5?1.:-1.;if(f==3)return fr;if(f==4)return 1.-fr;float i=floor(x);return mix(hh(i),hh(i+1.),fr)*2.-1.;}
@@ -1522,18 +1524,18 @@ vW=p+uOff;vec2 uv=aUV;
 if(uTcGen==1)uv=aLM;
 else if(uTcGen==2){vec3 V=normalize(uEye-vW);float d=dot(n,V);vec3 r=n*2.*d-V;uv=vec2(.5+r.y*.5,.5-r.z*.5);}
 else if(uTcGen==3)uv=vec2(dot(p,uTV0),dot(p,uTV1));
-vUV=uv;vLM=aLM;vL=aL;vC=aC;gl_Position=uMVP*vec4(vW,1.);}`,
-  H + `in vec2 vUV;in vec2 vLM;in float vL;in vec3 vW;in vec4 vC;uniform vec4 uDL[8];uniform vec3 uDLC[8];uniform int uNDL;vec3 dyn(vec3 w){vec3 s=vec3(0.);for(int i=0;i<8;i++){if(i>=uNDL)break;float d=distance(w,uDL[i].xyz);s+=uDLC[i]*max(0.,1.-d/uDL[i].w);}return s;}
-uniform sampler2D uTex;uniform sampler2D uLMap;uniform float uBright;uniform float uTime;uniform vec3 uEye;uniform int uSrc;uniform int uFuse;uniform vec4 uCol;uniform int uVCol;uniform int uAVert;uniform float uAPortal;uniform int uAFunc;
+vUV=uv;vLM=aLM;vL=aL;vC=aC;vLC=vec3(0.);vDV=vec3(0.);if(uLMode==1){vLC=textureLod(uLMap,aLM,0.).rgb;vDV=dyn(vW);}gl_Position=uMVP*vec4(vW,1.);}`,
+  H + `in vec2 vUV;in vec2 vLM;in float vL;in vec3 vW;in vec4 vC;in vec3 vLC;in vec3 vDV;uniform int uLMode;uniform vec3 uEye;uniform vec4 uDL[8];uniform vec3 uDLC[8];uniform int uNDL;vec3 dyn(vec3 w){vec3 s=vec3(0.);for(int i=0;i<8;i++){if(i>=uNDL)break;float d=distance(w,uDL[i].xyz);s+=uDLC[i]*max(0.,1.-d/uDL[i].w);}return s;}vec3 dynM(vec3 w){if(uLMode==1)return vDV;if(uLMode!=2)return dyn(w);vec3 N=normalize(cross(dFdx(w),dFdy(w)));vec3 V=normalize(uEye-w);if(dot(N,V)<0.)N=-N;vec3 s=vec3(0.);for(int i=0;i<8;i++){if(i>=uNDL)break;vec3 L=uDL[i].xyz-w;float d=length(L);L/=max(d,1e-3);float at=max(0.,1.-d/uDL[i].w);float nl=max(0.,dot(N,L));vec3 H=normalize(L+V);s+=uDLC[i]*at*(nl*1.25+pow(max(dot(N,H),0.),28.)*.3*nl);}return s;}
+uniform sampler2D uTex;uniform sampler2D uLMap;uniform float uBright;uniform float uTime;uniform int uSrc;uniform int uFuse;uniform vec4 uCol;uniform int uVCol;uniform int uAVert;uniform float uAPortal;uniform int uAFunc;
 uniform vec3 uRS;uniform vec3 uRT;uniform vec3 uPS;uniform vec3 uPT;uniform vec4 uTurb;uniform vec3 uFogC;uniform float uFogD;uniform int uFogMode;out vec4 o;
 void main(){vec3 q=vec3(vUV,1.);vec2 uv=vec2(dot(uRS,q),dot(uRT,q));
 if(uTurb.w>0.){float now=uTurb.y+uTime*uTurb.z;uv+=uTurb.x*vec2(sin(((vW.x+vW.z)*.0009765625+now)*6.2831853),sin((vW.y*.0009765625+now)*6.2831853));}
 uv=vec2(dot(uPS,vec3(uv,1.)),dot(uPT,vec3(uv,1.)));
 vec4 c;if(uSrc==0){c=texture(uTex,uv);if(uAFunc>0){vec2 ts=vec2(textureSize(uTex,0));vec2 dd=max(abs(dFdx(uv*ts)),abs(dFdy(uv*ts)));c.a*=1.+max(0.,log2(max(max(dd.x,dd.y),1e-4)))*.25;}}
-else if(uSrc==1)c=vec4(texture(uLMap,vLM).rgb*uBright*vL,1.);else c=vec4(1.);
+else if(uSrc==1)c=vec4((uLMode==1?vLC:texture(uLMap,vLM).rgb)*uBright*vL,1.);else c=vec4(1.);
 vec3 m=uCol.rgb;if(uVCol==1)m*=vC.rgb*uBright;float am=uCol.a;if(uAVert==1)am*=vC.a;if(uAPortal>0.)am*=clamp(distance(uEye,vW)/uAPortal,0.,1.);
 c.rgb*=m;c.a*=am;
-if(uFuse==1)c.rgb*=texture(uLMap,vLM).rgb*uBright*vL+dyn(vW);
+if(uFuse==1)c.rgb*=(uLMode==1?vLC:texture(uLMap,vLM).rgb)*uBright*vL+dynM(vW);
 if(uAFunc==1&&c.a<=.001)discard;if(uAFunc==2&&c.a>=.5)discard;if(uAFunc==3&&c.a<.5)discard;
 if(uFogMode>0){float f=clamp(distance(uEye,vW)*uFogD,0.,1.);c.rgb=uFogMode==2?c.rgb*(1.-f):mix(c.rgb,uFogC,f);}
 o=vec4(min(c.rgb,vec3(1.)),c.a);}`, ['aPos', 'aUV', 'aLM', 'aL', 'aN', 'aC']);
@@ -2836,7 +2838,19 @@ function trainUse(e) {
 }
 function damageEnt(e, dmg, src) { if (src !== 'monster' && PL.quad > simTime) dmg *= 4; if (e.isMonster) { damageMonster(e, dmg, src); return; } if (!e.takedamage || e.dead) return; e.health -= dmg; if (e.health <= 0) { e.takedamage = false; e.die && e.die(); } }
 // move a brush entity, pushing (or being blocked by) the player
-function pushMove(e, n) {
+function carryRiders(e, old) { // bots and monsters standing on a mover go where it goes
+  const st = e.st, d = [st.o[0] - old[0], st.o[1] - old[1], st.o[2] - old[2]]; if (!d[0] && !d[1] && !d[2]) return;
+  const top = st.maxs[2] + old[2];
+  for (const m of E.monsters) {
+    if (m.hidden || m.gibbed || m.rag || m.dead || (m.mon.fly !== undefined) || m.mon.swim) continue;
+    const fz = m.o[2] + m.mmins[2];
+    if (Math.abs(fz - top) > 2.5 || m.o[0] < st.mins[0] + old[0] || m.o[0] > st.maxs[0] + old[0] || m.o[1] < st.mins[1] + old[1] || m.o[1] > st.maxs[1] + old[1]) continue;
+    const was = m.box.active; m.box.active = false; const end = [m.o[0] + d[0], m.o[1] + d[1], m.o[2] + d[2]], t = Q.trace(m.o, m.mmins, m.mmaxs, end, Q.MASK_MONSTERSOLID); m.box.active = was;
+    if (!t.allsolid && !t.startsolid) { m.o = t.endpos; m.air = false; m.vel[2] = Math.max(m.vel[2], 0); updateBox(m); }
+  }
+}
+function pushMove(e, n) { const old = e.st.o.slice(), r = pushMove0(e, n); if (r && e.st.o !== old) carryRiders(e, old); return r; }
+function pushMove0(e, n) {
   const st = e.st;
   if (!st.active || ps.noclip) { st.o = n; return true; }
   const old = st.o, d = V3.sub(n, old), o = ps.origin.map(v => v / 8);
@@ -4279,6 +4293,28 @@ const nkey = (x, y, z) => ((Math.round(x / 32) + 4096) * 8192 + (Math.round(y / 
 function navReset() {
   NAV.nb.clear(); NAV.queue.length = 0; NOISES.length = 0;
   NAV.doors = E.movers.filter(e => e.cls === 'func_door' && !e.targetname && e.st && !e.dead);
+  NAV.plats = E.movers.filter(e => e.cls === 'func_plat' && !e.targetname && e.st && !e.dead).map(e => {
+    const cx = (e.mins[0] + e.maxs[0]) / 2, cy = (e.mins[1] + e.maxs[1]) / 2, up = e.maxs[2] + e.pos1[2], dn = e.maxs[2] + e.pos2[2];
+    return { e, cx, cy, dn: dn + 24, up: up + 24, exit: null };
+  });
+}
+function platEdges(n) { // standing on a plat at the bottom of its shaft: ride it up to the top
+  const out = [];
+  for (const P of NAV.plats || []) {
+    if (P.e.dead || Math.hypot(n.o[0] - P.cx, n.o[1] - P.cy) > 40 || Math.abs(n.o[2] - P.dn) > 20) continue;
+    if (!P.exit) P.exit = platExit(P); if (!P.exit) continue;
+    out.push({ k: nkey(P.exit.o[0], P.exit.o[1], P.exit.o[2]), o: P.exit.o, c: 90 + (P.up - P.dn) * .5, door: null, plat: P.e, from: [P.cx, P.cy] });
+  }
+  return out;
+}
+function platExit(P) { // a place to step off at the top: the nearest lattice node around the plat that stands level with it
+  let best = null, bd = 1e9; const e = P.e;
+  for (let x = Math.floor((e.mins[0] - 64) / 32) * 32; x <= e.maxs[0] + 64; x += 32) for (let y = Math.floor((e.mins[1] - 64) / 32) * 32; y <= e.maxs[1] + 64; y += 32) {
+    if (x > e.mins[0] - 8 && x < e.maxs[0] + 8 && y > e.mins[1] - 8 && y < e.maxs[1] + 8) continue;
+    const g = groundAt(x, y, P.up); if (!g || Math.abs(g[2] - P.up) > 20) continue;
+    const d = Math.hypot(x - P.cx, y - P.cy); if (d < bd) { bd = d; best = { o: g }; }
+  }
+  return best;
 }
 function navStep(o, dx, dy) { // can a bot standing at o walk (dx,dy) from here? returns the new standing point and a cost multiplier
   const M = Q.MASK_MONSTERSOLID, hm = NHULL.mins, hx = NHULL.maxs;
@@ -4299,6 +4335,7 @@ function navNb(n) {
     let door = null; for (const d of NAV.doors) { const m0 = d.st.mins, m1 = d.st.maxs; if (lo[0] <= m1[0] && hi[0] >= m0[0] && lo[1] <= m1[1] && hi[1] >= m0[1] && lo[2] <= m1[2] && hi[2] >= m0[2]) { door = d; break; } }
     r.push({ k: nkey(s.o[0], s.o[1], s.o[2]), o: s.o, c: len * s.pen + (door ? 24 : 0), door });
   }
+  for (const pe of platEdges(n)) r.push(pe);
   NAV.nb.set(n.k, r); return r;
 }
 function withDoorsOpen(fn) { // plan through doors a bot can open by walking at them
@@ -4338,7 +4375,7 @@ class NavSearch {
           const g = c.g + e.c; let s = this.seen.get(e.k);
           if (s && (s.closed || s.g <= g)) continue;
           if (!s) { s = { k: e.k, o: e.o, h: this.h(e.o) }; this.seen.set(e.k, s); }
-          s.g = g; s.f = g + s.h * 1.25; s.p = c; s.door = e.door; this.push(s);
+          s.g = g; s.f = g + s.h * 1.25; s.p = c; s.door = e.door; s.plat = e.plat || null; this.push(s);
         }
       }
       if (!this.heap.length) this.finish(this.best, true);
@@ -4346,9 +4383,9 @@ class NavSearch {
     return this.done;
   }
   finish(node, partial) {
-    this.done = true; this.partial = partial && node !== null; const path = [], doors = [];
-    for (let s = node; s && s.p; s = s.p) { path.push(s.o); doors.push(s.door); }
-    this.path = path.reverse(); this.doors = doors.reverse();
+    this.done = true; this.partial = partial && node !== null; const path = [], doors = [], plats = [];
+    for (let s = node; s && s.p; s = s.p) { path.push(s.o); doors.push(s.door); plats.push(s.plat || null); }
+    this.path = path.reverse(); this.doors = doors.reverse(); this.plats = plats.reverse();
   }
 }
 function navRequest(m, goal) {
@@ -4358,7 +4395,7 @@ function navRequest(m, goal) {
 }
 function navApply(m, s, goal) {
   const n = m.nav; n.req = null; n.goal = goal; n.t = simTime;
-  if (s.path && s.path.length) { n.path = s.path; n.doors = s.doors; n.i = 0; n.partial = s.partial; n.fail = 0; } else { n.path = null; n.noPath = simTime; }
+  if (s.path && s.path.length) { n.path = s.path; n.doors = s.doors; n.plats = s.plats; n.i = 0; n.partial = s.partial; n.fail = 0; } else { n.path = null; n.noPath = simTime; }
 }
 function navPump() {
   const t0 = performance.now();
@@ -4366,6 +4403,11 @@ function navPump() {
     const q = NAV.queue[0]; q.s.step(60);
     if (q.s.done) { NAV.queue.shift(); if (q.m.nav && q.m.nav.req === q.s) navApply(q.m, q.s, q.goal); } else NAV.queue.push(NAV.queue.shift());
   }
+}
+function botPlats(m) { // a bot standing on a plat's pad sets it going, just as you do
+  for (const t of E.triggers) { if (t.type !== 'plat' || t.plat.dead) continue; const p = t.plat;
+    if (m.o[0] < t.mins[0] || m.o[0] > t.maxs[0] || m.o[1] < t.mins[1] || m.o[1] > t.maxs[1] || m.o[2] < t.mins[2] || m.o[2] > t.maxs[2]) continue;
+    if (p.state === 'bottom') platGoUp(p); else if (p.state === 'top') p.nextT = simTime + 1000; }
 }
 function botDoors(m) { // a bot walking up to a door opens it
   for (const d of NAV.doors) { if (d.dead || d.state === 'up' || d.state === 'top') continue; const o = d.st.o, a = d.st.mins, b = d.st.maxs;
@@ -4381,7 +4423,12 @@ function botGo(m, goal, spd, face = true) {
   if ((!n.path || d3(n.goal || [1e9, 0, 0], goal) > 120 || simTime > n.t + 4000 || n.fail > 2) && !n.req && simTime >= n.reqT) { n.reqT = simTime + 450 + Math.random() * 250; n.req = navRequest(m, goal); }
   if (n.path && n.i < n.path.length) {
     while (n.i < n.path.length - 1 && hdist(m.o, n.path[n.i]) < 24 && Math.abs(m.o[2] - n.path[n.i][2]) < 34) n.i++;
-    const wp = n.path[n.i]; if (n.doors && n.doors[n.i]) { const d = n.doors[n.i]; if (d.state !== 'up' && d.state !== 'top') doorUse(d, 'player'); }
+    const wp = n.path[n.i], pl = n.plats && n.plats[n.i];
+    if (pl) { // the next step is a lift: get on, wait for the ride, step off at the top
+      const c = [(pl.mins[0] + pl.maxs[0]) / 2, (pl.mins[1] + pl.maxs[1]) / 2];
+      if (pl.state !== 'top' || m.o[2] < wp[2] - 30) { n.fail = 0; const dc = Math.hypot(m.o[0] - c[0], m.o[1] - c[1]); if (dc > 10 && m.o[2] < wp[2] - 30) stepMove(m, yawTo(m.o, [c[0], c[1], m.o[2]]), Math.min(spd, dc)); return true; }
+    }
+    if (n.doors && n.doors[n.i]) { const d = n.doors[n.i]; if (d.state !== 'up' && d.state !== 'top') doorUse(d, 'player'); }
     if (n.i >= n.path.length - 1 && hdist(m.o, wp) < 24) { n.path = null; return false; }
     const y = yawTo(m.o, wp); if (face) changeYaw(m, y, 45);
     let moved = stepMove(m, y, spd);
@@ -4531,7 +4578,7 @@ function botThink(m) {
   if (!m.ally) botCollect(m);
   const tg = botTarget(m);
   if (tg && m.ally) m.combatT = simTime;
-  botDoors(m);
+  botDoors(m); botPlats(m);
   const hr = botHear(m);
   if (hr && !tg) { if (m.ally) m.alert = { p: hr.p.slice(), t: simTime }; else if (!(m.last && simTime - m.lastT < 2000)) { m.last = hr.p.slice(); m.lastT = simTime; } }
   if (m.wanderT > simTime) { changeYaw(m, m.wanderYaw, 30); if (stepMove(m, m.wanderYaw, spd)) m.moveT = simTime; return; }
@@ -4874,11 +4921,11 @@ function render(alpha, dt) {
   gl.bindVertexArray(world.vao);
   if (world.sky.length) { gl.uniform1f(skyP.u.uScale, 1); for (const b of world.sky) { const s = b.model && world.mstate[b.model]; if (s && !s.visible) continue; gl.uniform3fv(skyP.u.uOff, s ? s.o : Z3); gl.drawElements(gl.TRIANGLES, b.count, gl.UNSIGNED_INT, b.start * 4); } }
   gl.useProgram(worldP.p); gl.uniformMatrix4fv(worldP.u.uMVP, false, vp); gl.uniform1f(worldP.u.uBright, S.bright); gl.uniform1f(worldP.u.uTime, time);
-  gl.uniform4fv(worldP.u['uDL[0]'], DLP); gl.uniform3fv(worldP.u['uDLC[0]'], DLC); gl.uniform1i(worldP.u.uNDL, nDL); gl.uniform3fv(worldP.u.uEye, eye);
+  gl.uniform4fv(worldP.u['uDL[0]'], DLP); gl.uniform3fv(worldP.u['uDLC[0]'], DLC); gl.uniform1i(worldP.u.uNDL, nDL); gl.uniform1i(worldP.u.uLMode, LMODE()); gl.uniform3fv(worldP.u.uEye, eye);
   gl.uniform1i(worldP.u.uTex, 0); gl.uniform1i(worldP.u.uLMap, 1); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, world.lmTex);
   camAxes = { r, u }; curFog = null; if (world.fogs) for (const fg of world.fogs) if ([0, 1, 2].every(k => eye[k] >= fg.mins[k] && eye[k] <= fg.maxs[k])) { curFog = fg; break; }
   gl.useProgram(shP.p); gl.uniformMatrix4fv(shP.u.uMVP, false, vp); gl.uniform1f(shP.u.uBright, S.bright); gl.uniform1f(shP.u.uTime, realTime / 1000); gl.uniform3fv(shP.u.uEye, eye);
-  gl.uniform4fv(shP.u['uDL[0]'], DLP); gl.uniform3fv(shP.u['uDLC[0]'], DLC); gl.uniform1i(shP.u.uNDL, nDL); gl.uniform1i(shP.u.uTex, 0); gl.uniform1i(shP.u.uLMap, 1);
+  gl.uniform4fv(shP.u['uDL[0]'], DLP); gl.uniform3fv(shP.u['uDLC[0]'], DLC); gl.uniform1i(shP.u.uNDL, nDL); gl.uniform1i(shP.u.uLMode, LMODE()); gl.uniform1i(shP.u.uTex, 0); gl.uniform1i(shP.u.uLMap, 1);
   if (curFog) { gl.uniform3fv(shP.u.uFogC, curFog.color); gl.uniform1f(shP.u.uFogD, 1 / Math.max(1, curFog.dist)); }
   gl.useProgram(worldP.p);
   drawBatches(world.opaque, false);
@@ -6473,6 +6520,7 @@ addEventListener('drop', e => { e.preventDefault(); document.body.classList.remo
 
 function bindRange(id, key, fmt) { const el = $(id), out = $(id + 'V'); el.value = S[key]; out.textContent = fmt(S[key]); el.oninput = () => { S[key] = +el.value; out.textContent = fmt(S[key]); saveS(); if (key === 'vol' && master) master.gain.value = S.vol; }; }
 bindRange('sens', 'sens', v => v.toFixed(1)); bindRange('fov', 'fov', v => v + '°'); bindRange('bright', 'bright', v => v.toFixed(1) + '×'); bindRange('vol', 'vol', v => Math.round(v * 100) + '%');
+{ const lt = $('lightMode'); lt.value = S.light || 'lightmap'; lt.onchange = () => { S.light = lt.value; saveS(); }; }
 { const lb = $('lgBeam'); lb.value = S.lgBeam || 'new'; lb.onchange = () => { S.lgBeam = lb.value; saveS(); }; }
 const tk = $('tick'); tk.value = S.tick; tk.onchange = () => { S.tick = +tk.value; saveS(); };
 for (const [id, key, num] of [['skill', 'skill', 1], ['hurt', 'hurt', 0]]) { const el = $(id); el.value = S[key]; el.onchange = () => { S[key] = num ? +el.value : el.value; saveS(); }; }
