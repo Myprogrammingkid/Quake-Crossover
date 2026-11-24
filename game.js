@@ -5,7 +5,7 @@ const Q = window.Q2, $ = id => document.getElementById(id);
 const { ps, pm } = Q;
 
 // ---------- settings ----------
-const S = { sens: 3, fov: 90, bright: 2, tick: 8, run: true, autohop: false, invert: false, vol: 0.7, music: 0.5, model: 'male', skin: 'grunt', third: false, skill: 1, hurt: 'monsters', testEnemies: true, wset: 'q2', pset: 'q2', model3: 'sarge', skin3: 'default', ragdoll: true, allWeapons: false, viewmodel: true, infAmmo: false, light: 'lightmap' };
+const S = { sens: 3, fov: 90, bright: 2, tick: 8, run: true, autohop: false, invert: false, vol: 0.7, music: 0.5, model: 'male', skin: 'grunt', third: false, skill: 1, hurt: 'monsters', testEnemies: true, wset: 'q2', pset: 'q2', model3: 'sarge', skin3: 'default', ragdoll: true, allWeapons: false, viewmodel: true, infAmmo: false, light: 'lightmap', pixQ: 'auto', dynRes: true };
 let MAPCAT = null;
 const BOT = { mode: 'dm', fragLimit: 0, timeLimit: 0, over: false, startT: 0, roster: [], on: false, pending: 0, bots: [], frags: 0, deaths: 0, count: 3, lastShooter: null, shooterT: 0, log: [], plan: null, planT: 0 };
 const AMMO = { bullets: 0, shells: 0, grenades: 0, rockets: 0, cells: 0, slugs: 0, lightning: 0, bfgam: 0, nails: 0, mines: 0, belt: 0 };
@@ -132,17 +132,21 @@ float z=d.z;vec3 top=vec3(.13,.15,.2),hor=vec3(.52,.38,.27),bot=vec3(.07,.06,.05
 vec3 c=z>0.?mix(hor,top,pow(z,.55)):mix(hor,bot,pow(-z,.4));
 if(z>0.){vec2 uv=d.xy/(z+.18)*1.4+vec2(uTime*.015,uTime*.006);float k=fbm(uv);c=mix(c,vec3(.72,.6,.5),smoothstep(.48,.85,k)*smoothstep(0.,.35,z)*.65);}
 vec3 sd=normalize(vec3(.45,.25,.32));float s=max(dot(d,sd),0.);c+=vec3(1.,.8,.55)*pow(s,300.)*2.+vec3(1.,.55,.3)*pow(s,6.)*.18;o=vec4(c,1.);}`, ['aPos']);
-const solidP = gl && prog(gl, H + `in vec3 aPos;in vec3 aNorm;uniform mat4 uMVP;uniform mat4 uM;out vec3 vN;out vec3 vW;void main(){vN=mat3(uM)*aNorm;vW=(uM*vec4(aPos,1.)).xyz;gl_Position=uMVP*vec4(aPos,1.);}`,
-  H + `in vec3 vN;in vec3 vW;uniform vec4 uColor;uniform float uLit;uniform vec3 uEye;uniform vec4 uDL[8];uniform vec3 uDLC[8];uniform int uNDL;out vec4 o;
+const SOLID_FS = H + `in vec3 vN;in vec3 vW;uniform vec4 uColor;uniform float uLit;uniform vec3 uEye;uniform vec4 uDL[8];uniform vec3 uDLC[8];uniform int uNDL;out vec4 o;
 uniform int uPixL;uniform int uSunOn;uniform vec3 uSunD;uniform vec3 uSunC;uniform mat4 uSVP;uniform highp sampler2DShadow uSM;
-float sunVis(vec3 w){vec4 s=uSVP*vec4(w,1.);vec3 q=s.xyz*.5+.5;if(q.x<0.||q.y<0.||q.x>1.||q.y>1.||q.z>1.)return 1.;float t=1./2048.,v=0.;for(int i=-1;i<=1;i++)for(int j=-1;j<=1;j++)v+=texture(uSM,vec3(q.xy+vec2(i,j)*t,q.z-.0003));return v/9.;}
+uniform float uSMT;uniform int uPCF;float sunVis(vec3 w){vec4 s=uSVP*vec4(w,1.);vec3 q=s.xyz*.5+.5;if(q.x<0.||q.y<0.||q.x>1.||q.y>1.||q.z>1.)return 1.;if(uPCF==0)return texture(uSM,vec3(q.xy,q.z-.0004));float v=0.;for(int i=-1;i<=1;i++)for(int j=-1;j<=1;j++)v+=texture(uSM,vec3(q.xy+vec2(i,j)*uSMT,q.z-.0003));return v/9.;}
 void main(){vec3 n=normalize(vN),L=normalize(vec3(.3,.6,.75)),V=normalize(uEye-vW);vec3 s=vec3(0.);for(int i=0;i<8;i++){if(i>=uNDL)break;vec3 Ld=uDL[i].xyz-vW;float d=length(Ld);float k=uPixL>=1?max(dot(n,Ld/max(d,1e-3)),0.)*1.35+.12:1.;s+=uDLC[i]*max(0.,1.-d/uDL[i].w)*k;}
 if(uSunOn==1){float k=max(dot(n,uSunD),0.);if(k>0.)s+=uSunC*k*1.3*sunVis(vW+n*2.);}
 vec3 hemi=mix(vec3(.26,.25,.25),vec3(.52,.56,.64),n.z*.5+.5);float dif=max(dot(n,L),0.)*.62;float sp=pow(max(dot(reflect(-L,n),V),0.),20.)*.22;float rim=pow(1.-max(dot(n,V),0.),3.)*.22;
-if(uPixL==2){hemi*=.28;dif*=.28;sp*=.3;rim*=.4;}vec3 c=uColor.rgb*(hemi+dif+s+rim)+vec3(sp);o=vec4(mix(uColor.rgb,c,uLit),uColor.a);}`, ['aPos', 'aNorm']);
+if(uPixL==2){hemi*=.28;dif*=.28;sp*=.3;rim*=.4;}vec3 c=uColor.rgb*(hemi+dif+s+rim)+vec3(sp);o=vec4(mix(uColor.rgb,c,uLit),uColor.a);}`;
+const solidP = gl && prog(gl, H + `in vec3 aPos;in vec3 aNorm;uniform mat4 uMVP;uniform mat4 uM;out vec3 vN;out vec3 vW;void main(){vN=mat3(uM)*aNorm;vW=(uM*vec4(aPos,1.)).xyz;gl_Position=uMVP*vec4(aPos,1.);}`, SOLID_FS, ['aPos', 'aNorm']);
+// instanced: every part of one figure that shares a mesh goes out in a single draw (model matrix, colour and lit flag per instance)
+const solidIP = gl && prog(gl, H + `in vec3 aPos;in vec3 aNorm;in vec4 aM0;in vec4 aM1;in vec4 aM2;in vec4 aM3;in vec4 aCol;in float aLit;uniform mat4 uVP;out vec3 vN;out vec3 vW;out vec4 vCol;out float vLit;
+void main(){mat4 M=mat4(aM0,aM1,aM2,aM3);vN=mat3(M)*aNorm;vec4 w=M*vec4(aPos,1.);vW=w.xyz;gl_Position=uVP*w;vCol=aCol;vLit=aLit;}`,
+  SOLID_FS.replace('uniform vec4 uColor;uniform float uLit;', 'in vec4 vCol;in float vLit;').replace(/uColor/g, 'vCol').replace(/uLit/g, 'vLit'), ['aPos', 'aNorm', 'aM0', 'aM1', 'aM2', 'aM3', 'aCol', 'aLit']);
 const MD2VS = H + `in vec3 aPos;in vec3 aNorm;in vec2 aUV;uniform mat4 uMVP;uniform mat4 uM;out vec2 vUV;out vec3 vN;out vec3 vW;void main(){gl_Position=uMVP*vec4(aPos,1.);vN=mat3(uM)*aNorm;vUV=aUV;vW=(uM*vec4(aPos,1.)).xyz;}`;
 const MD2FS = H + `in vec2 vUV;in vec3 vN;in vec3 vW;uniform vec4 uPow;uniform float uPowT;uniform vec4 uDL[8];uniform vec3 uDLC[8];uniform int uNDL;vec3 dyn(vec3 w){vec3 s=vec3(0.);for(int i=0;i<8;i++){if(i>=uNDL)break;float d=distance(w,uDL[i].xyz);s+=uDLC[i]*max(0.,1.-d/uDL[i].w);}return s;}uniform sampler2D uTex;uniform float uAmb;uniform float uShade;uniform vec3 uLDir;uniform int uEnv;uniform vec3 uEyeM;uniform float uCut;uniform vec3 uTR;uniform vec3 uTT;uniform vec4 uMul;uniform int uOver;uniform int uLitO;uniform int uPixL;uniform int uSunOn;uniform vec3 uSunD;uniform vec3 uSunC;uniform mat4 uSVP;uniform highp sampler2DShadow uSM;out vec4 o;
-float sunVis(vec3 w){vec4 s=uSVP*vec4(w,1.);vec3 q=s.xyz*.5+.5;if(q.x<0.||q.y<0.||q.x>1.||q.y>1.||q.z>1.)return 1.;float t=1./2048.,v=0.;for(int i=-1;i<=1;i++)for(int j=-1;j<=1;j++)v+=texture(uSM,vec3(q.xy+vec2(i,j)*t,q.z-.0003));return v/9.;}
+uniform float uSMT;uniform int uPCF;float sunVis(vec3 w){vec4 s=uSVP*vec4(w,1.);vec3 q=s.xyz*.5+.5;if(q.x<0.||q.y<0.||q.x>1.||q.y>1.||q.z>1.)return 1.;if(uPCF==0)return texture(uSM,vec3(q.xy,q.z-.0004));float v=0.;for(int i=-1;i<=1;i++)for(int j=-1;j<=1;j++)v+=texture(uSM,vec3(q.xy+vec2(i,j)*uSMT,q.z-.0003));return v/9.;}
 vec3 dynP(vec3 w,vec3 n){vec3 s=vec3(0.);if(uSunOn==1){float k=max(dot(n,uSunD),0.);if(k>0.)s+=uSunC*k*1.3*sunVis(w+n*2.);}for(int i=0;i<8;i++){if(i>=uNDL)break;vec3 L=uDL[i].xyz-w;float d=length(L);L/=max(d,1e-3);float at=max(0.,1.-d/uDL[i].w);s+=uDLC[i]*at*(max(dot(n,L),0.)*1.35+.12);}return s;}
 vec3 dl(vec3 w,vec3 n){return uPixL>=1?dynP(w,n):dyn(w);}
 void m1(){vec3 n=normalize(vN);float l=uAmb+(1.-uAmb)*max(dot(n,uLDir),0.);if(uPixL==2)l*=.28;vec2 uv=vUV;if(uEnv==1){vec3 r=reflect(normalize(vW-uEyeM),n);uv=vec2(.5+.5*r.y,.5-.5*r.z);}uv=vec2(dot(uTR,vec3(uv,1.)),dot(uTT,vec3(uv,1.)));vec4 tx=texture(uTex,uv);if(uCut>0.&&tx.a<uCut)discard;vec3 t=tx.rgb;if(uOver==1){t*=uMul.rgb;if(uLitO==1)t=t*l*uShade+t*dl(vW,n);o=vec4(min(t,vec3(1.5)),tx.a*uMul.a);return;}if(uEnv==1){o=vec4(t*(.3+.7*l)*uShade*.8,1.);return;}o=vec4(min(t*l*uShade+t*dl(vW,n),vec3(1.)),1.);}
@@ -175,8 +179,15 @@ function meshPN(data) {
   const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data), gl.STATIC_DRAW);
   gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 24, 0);
   gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 24, 12);
-  gl.bindVertexArray(null); return { vao, n: data.length / 6, pos: new Float32Array(data) };
+  gl.bindVertexArray(null); const pos = new Float32Array(data), m = { vao, vb: b, n: data.length / 6, pos };
+  if (m.n > 240) { // a detailed part throws its shadow from a rounded box over the same bounds: the silhouette reads the same, at a fraction of the volume
+    const lo = [1e9, 1e9, 1e9], hi = [-1e9, -1e9, -1e9]; for (let i = 0; i < pos.length; i += 6) for (let q = 0; q < 3; q++) { lo[q] = Math.min(lo[q], pos[i + q]); hi[q] = Math.max(hi[q], pos[i + q]); }
+    const R = RBOX_LO || (RBOX_LO = rboxData(.42, 6)), c = new Float32Array(R.length); for (let i = 0; i < R.length; i += 6) for (let q = 0; q < 3; q++) c[i + q] = (lo[q] + hi[q]) / 2 + R[i + q] * (hi[q] - lo[q]);
+    m.cap = c; m.capN = R.length / 6;
+  }
+  return m;
 }
+let RBOX_LO = null;
 function cubeData() {
   const d = [], F = [[[1, 0, 0], [0, 1, 0], [0, 0, 1]], [[-1, 0, 0], [0, 0, 1], [0, 1, 0]], [[0, 1, 0], [0, 0, 1], [1, 0, 0]], [[0, -1, 0], [1, 0, 0], [0, 0, 1]], [[0, 0, 1], [1, 0, 0], [0, 1, 0]], [[0, 0, -1], [0, 1, 0], [1, 0, 0]]];
   for (const [n, a, b] of F) {
@@ -570,8 +581,8 @@ function md2Draw(ctx, inst, tex, fa, fb, t, vp, M, shade = 1, amb = 0.5) {
   g.uniform1f(P.u.uAmb, amb); g.uniform1f(P.u.uShade, shade); g.uniform4fv(P.u.uPow, POWV); g.uniform1f(P.u.uPowT, realTime / 1000); g.uniform1i(P.u.uPixL, ctx === mainCtx && S.light === 'pixel' ? 1 : 0);
   if (ctx === mainCtx) { if (!setModelPix(g, P, M)) { g.uniform4fv(P.u['uDL[0]'], DLP); g.uniform3fv(P.u['uDLC[0]'], DLC); g.uniform1i(P.u.uNDL, nDL); } } else { g.uniform1i(P.u.uNDL, 0); g.uniform1i(P.u.uSunOn, 0); } g.uniform3fv(P.u.uLDir, [0.4, 0.3, 0.866]); g.uniform1i(P.u.uTex, 0);
   g.activeTexture(g.TEXTURE0); g.bindTexture(g.TEXTURE_2D, tex || greyTex(ctx));
-  g.bindVertexArray(inst.vao); g.drawArrays(g.TRIANGLES, 0, m.n);
-  if (ctx === mainCtx) { if (SHCAP) capTris(out, null, m.n, M); if (POWS) shellDraw(inst.vao, m.n, false, M, vp); }
+  if (!(DRAWOFF && ctx === mainCtx)) { g.bindVertexArray(inst.vao); g.drawArrays(g.TRIANGLES, 0, m.n); }
+  if (ctx === mainCtx) { if (DRAWOFF) { if (SHCAP) capTris(out, null, m.n, M); return; } if (SHCAP) capTris(out, null, m.n, M); if (POWS) shellDraw(inst.vao, m.n, false, M, vp); }
 }
 function greyTex(ctx) { return ctx.grey || (ctx.grey = makeTex(ctx.g, new Uint8Array([150, 150, 150, 255]), 1, 1)); }
 function animFrames(model, name, time, loop) {
@@ -620,13 +631,15 @@ function uploadWorld(G, lmTex) {
   const w0bufs = [];
   let nv = 0, ni = 0; for (const g of G.values()) { nv += g.v.length; ni += g.i.length; }
   const vb = new Float32Array(nv), ib = new Uint32Array(ni), xb = new Float32Array(nv / 8 * 7); let vo = 0, io = 0; const batches = [];
+  const WB = [[1e9, 1e9, 1e9], [-1e9, -1e9, -1e9]]; for (const g of G.values()) for (let k = 0; k < g.v.length; k += 8) for (let q = 0; q < 3; q++) { const x = g.v[k + q]; if (x < WB[0][q]) WB[0][q] = x; if (x > WB[1][q]) WB[1][q] = x; }
   for (const g of G.values()) {
-    vb.set(g.v, vo); const base = vo / 8, ng = g.v.length / 8; for (let k = 0; k < g.i.length; k++) ib[io + k] = g.i[k] + base;
+    vb.set(g.v, vo); const base = vo / 8, ng = g.v.length / 8; let chunks = null;
+    if (g.kind === 'opaque' && !g.model && g.i.length >= 384) chunks = chunkBatch(g, base, io, ib, WB); else for (let k = 0; k < g.i.length; k++) ib[io + k] = g.i[k] + base;
     for (let k = 0; k < ng; k++) { // per-vertex normal and colour for the shader stages
       const o = (base + k) * 7; let nx = 0, ny = 0, nz = 1; if (g.n) { nx = g.n[k * 3]; ny = g.n[k * 3 + 1]; nz = g.n[k * 3 + 2]; const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l; }
       xb[o] = nx; xb[o + 1] = ny; xb[o + 2] = nz; if (g.c) { xb[o + 3] = g.c[k * 4]; xb[o + 4] = g.c[k * 4 + 1]; xb[o + 5] = g.c[k * 4 + 2]; xb[o + 6] = g.c[k * 4 + 3]; } else { xb[o + 3] = xb[o + 4] = xb[o + 5] = xb[o + 6] = 1; }
     }
-    batches.push({ emit: !!g.emit, nocast: !castOK(g), anim: g.anim, animFps: g.animFps, tex: g.tex, kind: g.kind, alpha: g.alpha, warp: g.warp, liquid: g.liquid || 0, alphaTest: g.alphaTest, texAlpha: g.texAlpha, scroll: g.scroll, model: g.model || 0, polyOff: !!g.polyOff, start: io, count: g.i.length, rt: g.rt, auto: g.autoQ ? { v0: base, nv: ng, quads: g.autoQ } : null });
+    batches.push({ chunks, emit: !!g.emit, nocast: !castOK(g), anim: g.anim, animFps: g.animFps, tex: g.tex, kind: g.kind, alpha: g.alpha, warp: g.warp, liquid: g.liquid || 0, alphaTest: g.alphaTest, texAlpha: g.texAlpha, scroll: g.scroll, model: g.model || 0, polyOff: !!g.polyOff, start: io, count: g.i.length, rt: g.rt, auto: g.autoQ ? { v0: base, nv: ng, quads: g.autoQ } : null });
     vo += g.v.length; io += g.i.length;
   }
   const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
@@ -636,7 +649,7 @@ function uploadWorld(G, lmTex) {
   gl.enableVertexAttribArray(4); gl.vertexAttribPointer(4, 3, gl.FLOAT, false, 28, 0); gl.enableVertexAttribArray(5); gl.vertexAttribPointer(5, 4, gl.FLOAT, false, 28, 12);
   const e = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, e); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, ib, gl.STATIC_DRAW);
   gl.bindVertexArray(null);
-  const shadow = buildWorldCasters(G); if (shadow) w0bufs.push(shadow.buf);
+  const shadow = buildWorldCasters(G); if (shadow) w0bufs.push(shadow.buf, shadow.ebuf);
   const kinds = { opaque: [], sky: [], trans: [], add: [] }; for (const bt of batches) kinds[bt.kind].push(bt);
   const bySort = (a, c) => (a.rt ? a.rt.sort : a.kind === 'trans' ? 10 : 3) - (c.rt ? c.rt.sort : c.kind === 'trans' ? 10 : 3);
   kinds.opaque.sort(bySort); kinds.trans.sort(bySort);
@@ -3366,7 +3379,31 @@ function playerAnim() {
 // ---------- rendering ----------
 let realTime = 0, attract = false; // attract: the slow fly-around behind the title screen
 let solidFrame = -1, vmSpin = 0, solidVS = false;
+let SQon = false, SQvp = null, SQM0 = null, SIB = null; const SQ = new Map();
+function sqAdd(vp, mesh, M, color, lit) {
+  if (POWV[3] > 0) { const a = POWV[3], w = .5 + .5 * Math.sin(realTime / 1000 * 7 + M[12] * .07 + M[13] * .05 + M[14] * .1); color = [0, 1, 2].map(i => Math.min(1.4, color[i] * (1 + POWV[i] * .9 * a) + POWV[i] * a * (.2 + .45 * w))).concat(color[3]); }
+  SQvp = vp; if (!SQM0) SQM0 = M; let q = SQ.get(mesh); if (!q) SQ.set(mesh, q = { a: new Float32Array(21 * 16), n: 0 });
+  if ((q.n + 1) * 21 > q.a.length) { const a = new Float32Array(q.a.length * 2); a.set(q.a); q.a = a; }
+  const o = q.n * 21; q.a.set(M, o); q.a[o + 16] = color[0]; q.a[o + 17] = color[1]; q.a[o + 18] = color[2]; q.a[o + 19] = color[3] === undefined ? 1 : color[3]; q.a[o + 20] = lit; q.n++;
+}
+function sqFlush() {
+  if (!SQM0) return; const P = solidIP, u = P.u; gl.useProgram(P.p);
+  if (P.frame !== realTime) { P.frame = realTime; gl.uniform3fv(u.uEye, curEye); gl.uniform1i(u.uPixL, S.light === 'pixel' ? 1 : 0); gl.uniform1i(u.uSunOn, 0); gl.uniform1i(u.uSM, 5); P.dlSet = false; }
+  if (!setModelPix(gl, P, SQM0) && !P.dlSet) { P.dlSet = true; gl.uniform4fv(u['uDL[0]'], DLP); gl.uniform3fv(u['uDLC[0]'], DLC); gl.uniform1i(u.uNDL, nDL); }
+  gl.uniformMatrix4fv(u.uVP, false, SQvp);
+  if (!SIB) SIB = gl.createBuffer();
+  for (const [mesh, q] of SQ) {
+    if (!q.n) continue;
+    if (!mesh.ivao) { const v = mesh.ivao = gl.createVertexArray(); gl.bindVertexArray(v); gl.bindBuffer(gl.ARRAY_BUFFER, mesh.vb); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 24, 0); gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 24, 12);
+      gl.bindBuffer(gl.ARRAY_BUFFER, SIB); for (let k = 0; k < 6; k++) { const L = 2 + k; gl.enableVertexAttribArray(L); gl.vertexAttribPointer(L, k < 5 ? 4 : 1, gl.FLOAT, false, 84, k * 16); gl.vertexAttribDivisor(L, 1); } }
+    gl.bindBuffer(gl.ARRAY_BUFFER, SIB); gl.bufferData(gl.ARRAY_BUFFER, q.a.subarray(0, q.n * 21), gl.STREAM_DRAW);
+    gl.bindVertexArray(mesh.ivao); gl.drawArraysInstanced(gl.TRIANGLES, 0, mesh.n, q.n); q.n = 0;
+  }
+  gl.bindVertexArray(null); SQM0 = null;
+}
 function drawSolid(vp, mesh, M, color, lit = 1) {
+  if (SQon && !POWS && !solidVS && mesh.vb) { if (DRAWOFF) { if (SHCAP) capTris(mesh.cap || mesh.pos, null, mesh.cap ? mesh.capN : mesh.n, M); return; } sqAdd(vp, mesh, M, color, lit); if (SHCAP) capTris(mesh.cap || mesh.pos, null, mesh.cap ? mesh.capN : mesh.n, M); return; }
+  if (DRAWOFF && !solidVS) { if (SHCAP && mesh.pos) capTris(mesh.cap || mesh.pos, null, mesh.cap ? mesh.capN : mesh.n, M); return; }
   gl.useProgram(solidP.p);
   if (solidFrame !== realTime) { solidFrame = realTime; gl.uniform3fv(solidP.u.uEye, curEye); gl.uniform4fv(solidP.u['uDL[0]'], DLP); gl.uniform3fv(solidP.u['uDLC[0]'], DLC); gl.uniform1i(solidP.u.uNDL, nDL); gl.uniform1i(solidP.u.uPixL, S.light === 'pixel' ? 1 : 0); gl.uniform1i(solidP.u.uSunOn, 0); }
   if (!solidVS) setModelPix(gl, solidP, M);
@@ -3374,13 +3411,14 @@ function drawSolid(vp, mesh, M, color, lit = 1) {
   if (POWV[3] > 0) { const a = POWV[3], w = .5 + .5 * Math.sin(realTime / 1000 * 7 + M[12] * .07 + M[13] * .05 + M[14] * .1); color = [0, 1, 2].map(i => Math.min(1.4, color[i] * (1 + POWV[i] * .9 * a) + POWV[i] * a * (.2 + .45 * w))).concat(color[3]); } // powerup glow on box-built models
   gl.uniform4fv(solidP.u.uColor, color); gl.uniform1f(solidP.u.uLit, lit);
   gl.bindVertexArray(mesh.vao); gl.drawArrays(gl.TRIANGLES, 0, mesh.n);
-  if (SHCAP && mesh.pos) capTris(mesh.pos, null, mesh.n, M);
+  if (SHCAP && mesh.pos) capTris(mesh.cap || mesh.pos, null, mesh.cap ? mesh.capN : mesh.n, M);
   if (POWS) shellDraw(mesh.vao, mesh.n, false, M, vp, .35);
 }
 function drawBatches(list, inTrans) {
   const ms = world.mstate; let cur = 0;
   for (const b of list) {
     let off = Z3; if (b.model) { const s = ms[b.model]; if (s) { if (!s.visible) continue; off = s.o; } }
+    b.runs = inTrans ? null : runsFor(b, chunkVis); if (b.runs && !b.runs.length) continue;
     const ak = AMBK(b);
     if (b.rt) {
       if (cur !== 2) { gl.useProgram(shP.p); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, world.lmTex); cur = 2; }
@@ -3393,7 +3431,7 @@ function drawBatches(list, inTrans) {
     gl.uniform1i(worldP.u.uWarp, b.warp ? 1 : 0); gl.uniform1f(worldP.u.uAlpha, b.alpha);
     gl.uniform1i(worldP.u.uLiquid, b.liquid || 0); gl.uniform1f(worldP.u.uAlphaTest, b.alphaTest ? .5 : 0); gl.uniform1i(worldP.u.uTexAlpha, b.texAlpha ? 1 : 0); gl.uniform2fv(worldP.u.uScroll, b.scroll || [0, 0]);
     if (b.polyOff) { gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(-1, -2); }
-    gl.drawElements(gl.TRIANGLES, b.count, gl.UNSIGNED_INT, b.start * 4);
+    drawB(b);
     if (b.polyOff) gl.disable(gl.POLYGON_OFFSET_FILL);
   }
   if (cur === 2) gl.useProgram(worldP.p);
@@ -3406,17 +3444,73 @@ function drawPlaceholder(vp, o, y) {
   part(10, -9, 12 + dz, 10, 2, 2, [...WEAPONS[W.cur].col, 1]);
 }
 
+
+// ---------- culling: each opaque batch is split into spatially sorted chunks (Morton order, 64 triangles) with bounds, so the
+// camera only draws chunks in view and each light only the chunks inside its reach; neighbouring chunks merge into one draw call
+function chunkBatch(g, base, io, ib, WB) {
+  const I = g.i, V = g.v, nt = I.length / 3 | 0, code = new Uint32Array(nt), ord = new Uint32Array(nt), ext = [0, 1, 2].map(q => Math.max(1, WB[1][q] - WB[0][q]));
+  const spread = x => { x &= 1023; x = (x | (x << 16)) & 0x030000FF; x = (x | (x << 8)) & 0x0300F00F; x = (x | (x << 4)) & 0x030C30C3; x = (x | (x << 2)) & 0x09249249; return x; };
+  for (let t = 0; t < nt; t++) {
+    const a = I[t * 3] * 8, b = I[t * 3 + 1] * 8, c = I[t * 3 + 2] * 8, q = [0, 1, 2].map(k => Math.min(1023, ((V[a + k] + V[b + k] + V[c + k]) / 3 - WB[0][k]) / ext[k] * 1023 | 0));
+    code[t] = (spread(q[0]) | (spread(q[1]) << 1) | (spread(q[2]) << 2)) >>> 0; ord[t] = t;
+  }
+  ord.sort((x, y) => code[x] - code[y]);
+  const chunks = []; let ch = null;
+  for (let k = 0; k < nt; k++) {
+    if (!ch || ch.c >= 192) chunks.push(ch = { s: io + k * 3, c: 0, lo: [1e9, 1e9, 1e9], hi: [-1e9, -1e9, -1e9], vf: -1, v: false });
+    const t = ord[k];
+    for (let j = 0; j < 3; j++) { const vi = I[t * 3 + j]; ib[io + k * 3 + j] = vi + base; for (let q = 0; q < 3; q++) { const x = V[vi * 8 + q]; if (x < ch.lo[q]) ch.lo[q] = x; if (x > ch.hi[q]) ch.hi[q] = x; } }
+    ch.c += 3;
+  }
+  return chunks;
+}
+const FR = new Float32Array(20);
+function setFrustum(m) { // left, right, bottom, top, near planes of the view-projection
+  const r = (i, j) => m[j * 4 + i];
+  for (let p = 0; p < 5; p++) { const ax = p >> 1, sg = p & 1 ? -1 : 1, k = p === 4 ? 2 : ax; for (let j = 0; j < 4; j++) FR[p * 4 + j] = r(3, j) + sg * r(k, j); }
+}
+function chunkVis(ch) {
+  if (ch.vf === frameNo) return ch.v; ch.vf = frameNo; ch.v = true;
+  for (let p = 0; p < 5; p++) { const a = FR[p * 4], b = FR[p * 4 + 1], c = FR[p * 4 + 2], d = FR[p * 4 + 3];
+    if (a * (a > 0 ? ch.hi[0] : ch.lo[0]) + b * (b > 0 ? ch.hi[1] : ch.lo[1]) + c * (c > 0 ? ch.hi[2] : ch.lo[2]) + d < 0) { ch.v = false; break; } }
+  return ch.v;
+}
+const boxSphere = (lo, hi, L) => { let d = 0; for (let q = 0; q < 3; q++) { const x = Math.max(lo[q], Math.min(L.p[q], hi[q])) - L.p[q]; d += x * x; } return d <= L.r * L.r; };
+function runsFor(b, test) {
+  if (!b.chunks) return null; const R = b.runsBuf || (b.runsBuf = []); R.length = 0;
+  for (const ch of b.chunks) { if (!test(ch)) continue; const n = R.length; if (n && R[n - 2] + R[n - 1] === ch.s) R[n - 1] += ch.c; else R.push(ch.s, ch.c); }
+  return R;
+}
+function drawB(b) { const R = b.runs; if (!R) { gl.drawElements(gl.TRIANGLES, b.count, gl.UNSIGNED_INT, b.start * 4); return; } for (let i = 0; i < R.length; i += 2) gl.drawElements(gl.TRIANGLES, R[i + 1], gl.UNSIGNED_INT, R[i] * 4); }
+// ---------- per-pixel quality: phones and tablets get the light preset automatically; render resolution follows the frame rate ----------
+const isMobileDev = () => isTouch || /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent || '');
+function PQ() {
+  const low = S.pixQ === 'low' || (S.pixQ !== 'high' && isMobileDev());
+  return low ? { low: true, st: 3, dyn: 1, sm: 1024, pcf: 0, dpr: 1 } : { low: false, st: 8, dyn: 3, sm: 2048, pcf: 1, dpr: 2 };
+}
+const RS = { scale: 1, acc: 0, n: 0, t: 0 };
+function adaptRes(dt) {
+  if (S.light !== 'pixel' || S.dynRes === false) { RS.scale = 1; return; }
+  RS.acc += dt; RS.n++; RS.t += dt; if (RS.t < 1) return;
+  const ms = RS.acc / RS.n * 1000; RS.acc = RS.n = RS.t = 0;
+  if (ms > 24) RS.scale = Math.max(.5, RS.scale - .1); else if (ms < 15 && RS.scale < 1) RS.scale = Math.min(1, RS.scale + .05);
+}
 // ---------- stencil shadows (per-pixel lighting mode) ----------
 // The four lights nearest the view each get their own pass, Doom 3 style: every opaque world triangle and every character near the light
 // throws a shadow volume into the stencil buffer (depth-fail counting, extruded to infinity), then the world is lit additively with
 // Phong shading wherever the stencil count is zero. The remaining lights stay on the cheap unshadowed path.
-let SHL = [], SHCAP = false; const capBuf = { a: new Float32Array(1 << 16), n: 0 };
+let SHL = [], SHCAP = false, DRAWOFF = false; const CAPR = []; let capCur = null; const capBuf = { a: new Float32Array(1 << 16), n: 0 };
 const shadowsOn = () => S.light === 'pixel' && !!gl && gl.getContextAttributes().stencil && !!svP;
-let nDynSh = 0, SUNL = null, frameNo = 0; const MAXST = 10;
+let nDynSh = 0, SUNL = null, frameNo = 0, EXL = [], WLn = 0; const WLP = new Float32Array(32), WLC = new Float32Array(24);
+function buildWL() { // lights without a shadow pass: the rest of the dynamic ones, then the next map lights — shaded in the main pass, no extra draws
+  WLn = 0; for (let i = nDynSh; i < nDL && WLn < 8; i++, WLn++) { WLP.set(DLP.subarray(i * 4, i * 4 + 4), WLn * 4); WLC.set(DLC.subarray(i * 3, i * 3 + 3), WLn * 3); }
+  for (const l of EXL) { if (WLn >= 8) break; WLP.set([l.p[0], l.p[1], l.p[2], l.r], WLn * 4); WLC.set(l.c, WLn * 3); WLn++; }
+}
 function pickShadowLights(eye, vp, W, H, dt) {
   SHL = []; SUNL = null; nDynSh = 0;
   if (!shadowsOn()) return;
-  for (let i = 0; i < nDL && SHL.length < 4; i++) { const c = [DLC[i * 3], DLC[i * 3 + 1], DLC[i * 3 + 2]]; SHL.push({ p: [DLP[i * 4], DLP[i * 4 + 1], DLP[i * 4 + 2]], r: DLP[i * 4 + 3], c, dyn: true }); }
+  const Q_ = PQ(); EXL = [];
+  for (let i = 0; i < nDL && SHL.length < Q_.dyn; i++) { const c = [DLC[i * 3], DLC[i * 3 + 1], DLC[i * 3 + 2]]; SHL.push({ p: [DLP[i * 4], DLP[i * 4 + 1], DLP[i * 4 + 2]], r: DLP[i * 4 + 3], c, dyn: true }); }
   nDynSh = SHL.length;
   if (!world) return; if (!world.plights) buildPixLights(world);
   const cand = [];
@@ -3427,9 +3521,11 @@ function pickShadowLights(eye, vp, W, H, dt) {
   }
   cand.sort((a, b) => a.s - b.s);
   for (let i = 0; i < cand.length; i++) {
-    const l = cand[i].l; if (i >= MAXST) { l.f = 0; continue; }
-    l.f = Math.min(1, (l.f || 0) + dt * 4); SHL.push({ p: l.p, r: l.r, c: l.c.map(v => v * l.f), spot: l.spot || null });
+    const l = cand[i].l; if (i >= Q_.st + 8) { l.f = 0; continue; }
+    l.f = Math.min(1, (l.f || 0) + dt * 4); const o = { p: l.p, r: l.r, c: l.c.map(v => v * l.f), spot: l.spot || null };
+    (i < Q_.st ? SHL : EXL).push(o);
   }
+  buildWL();
   if (world.sun) SUNL = world.sun;
 }
 const AMBK = b => !SHL.length && !SUNL ? 1 : b.emit ? 1 : b.liquid ? .6 : .22;
@@ -3491,7 +3587,7 @@ function buildPixLights(w) {
   w.sun = sd ? { d: (() => { const y = sd.yaw * Math.PI / 180, e = sd.elev * Math.PI / 180; return [Math.cos(e) * Math.cos(y), Math.cos(e) * Math.sin(y), Math.sin(e)]; })(), c: sd.c } : null;
 }
 // the sun: a 2048² depth map over the 3600 units around you, refreshed every frame; characters use last frame's pose
-const SMN = 2048, SMR = 1800, SMD = 6000; let SM = null, capPrevN = 0;
+let SMN = 2048; const SMR = 1800, SMD = 6000; let SM = null, capPrevN = 0;
 const sdP = gl && prog(gl, H + `in vec3 aPos;uniform mat4 uSVP;uniform vec3 uOff;void main(){gl_Position=uSVP*vec4(aPos+uOff,1.);}`, H + `out vec4 o;void main(){o=vec4(0.);}`, ['aPos']);
 function smInit() {
   const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D, t); gl.texStorage2D(gl.TEXTURE_2D, 1, gl.DEPTH_COMPONENT24, SMN, SMN);
@@ -3504,7 +3600,7 @@ function smInit() {
   SM = { t, fb, vao, vp: new Float32Array(16) };
 }
 function renderSunMap(eye, W, H) {
-  if (!svVao) svInit(); if (!SM) smInit();
+  if (!svVao) svInit(); const want = PQ().sm; if (SM && SMN !== want) { gl.deleteTexture(SM.t); gl.deleteFramebuffer(SM.fb); SM = null; } SMN = want; if (!SM) smInit();
   const d = SUNL.d, f = [-d[0], -d[1], -d[2]], up = Math.abs(f[2]) > .95 ? [1, 0, 0] : [0, 0, 1], r = nrm(Q.cross(f, up)), u = Q.cross(r, f);
   const tx = 2 * SMR / SMN, cx = Math.round(Q.dot(eye, r) / tx) * tx, cy = Math.round(Q.dot(eye, u) / tx) * tx, cz = Q.dot(eye, f);
   SM.vp.set([r[0] / SMR, u[0] / SMR, f[0] / SMD, 0, r[1] / SMR, u[1] / SMR, f[1] / SMD, 0, r[2] / SMR, u[2] / SMR, f[2] / SMD, 0, -cx / SMR, -cy / SMR, -cz / SMD, 1]);
@@ -3514,7 +3610,8 @@ function renderSunMap(eye, W, H) {
   gl.useProgram(sdP.p); gl.uniformMatrix4fv(sdP.u.uSVP, false, SM.vp); gl.bindVertexArray(world.vao); const ms = world.mstate;
   for (const b of world.opaque) {
     if (b.nocast) continue; let off = Z3; if (b.model) { const st = ms[b.model]; if (st) { if (!st.visible) continue; off = st.o; } }
-    gl.uniform3fv(sdP.u.uOff, off); gl.drawElements(gl.TRIANGLES, b.count, gl.UNSIGNED_INT, b.start * 4);
+    b.runs = runsFor(b, ch => ch.lo[0] - SMR * 1.45 < curEye[0] && ch.hi[0] + SMR * 1.45 > curEye[0] && ch.lo[1] - SMR * 1.45 < curEye[1] && ch.hi[1] + SMR * 1.45 > curEye[1]); if (b.runs && !b.runs.length) continue;
+    gl.uniform3fv(sdP.u.uOff, off); drawB(b);
   }
   if (capPrevN) { gl.uniform3fv(sdP.u.uOff, Z3); gl.bindVertexArray(SM.vao); gl.drawArrays(gl.TRIANGLES, 0, capPrevN * 3); }
   gl.disable(gl.POLYGON_OFFSET_FILL); gl.colorMask(true, true, true, true); gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, W, H); gl.depthFunc(gl.LEQUAL); gl.bindVertexArray(null);
@@ -3525,20 +3622,22 @@ const MLP = new Float32Array(32), MLC = new Float32Array(24);
 function setModelPix(g, P, M) {
   if (!(SHL.length || SUNL)) { g.uniform1i(P.u.uSunOn, 0); return false; }
   g.uniform1i(P.u.uPixL, 2);
-  if (P.pixF !== frameNo) { P.pixF = frameNo; P.mlKey = null; g.uniform1i(P.u.uSunOn, SUNL ? 1 : 0); if (SUNL) { g.uniform3fv(P.u.uSunD, SUNL.d); g.uniform3fv(P.u.uSunC, SUNL.c); g.uniformMatrix4fv(P.u.uSVP, false, SM.vp); g.uniform1i(P.u.uSM, 5); } }
+  if (P.pixF !== frameNo) { P.pixF = frameNo; P.mlKey = null; g.uniform1i(P.u.uSunOn, SUNL ? 1 : 0); if (SUNL) { g.uniform3fv(P.u.uSunD, SUNL.d); g.uniform3fv(P.u.uSunC, SUNL.c); g.uniformMatrix4fv(P.u.uSVP, false, SM.vp); g.uniform1i(P.u.uSM, 5); g.uniform1f(P.u.uSMT, 1 / SMN); g.uniform1i(P.u.uPCF, PQ().pcf); } }
   const p = [M[12], M[13], M[14]], key = Math.round(p[0] / 40) + ',' + Math.round(p[1] / 40) + ',' + Math.round(p[2] / 40);
   if (P.mlKey === key) return true; P.mlKey = key;
   const cand = [];
   const add = (q, r, c) => { const d = Math.hypot(q[0] - p[0], q[1] - p[1], q[2] - p[2]); if (d < r + 40) cand.push({ q, r, c, s: (1 - d / (r + 40)) * Math.max(c[0], c[1], c[2]) }); };
   for (const l of SHL) add(l.p, l.r, l.c);
   for (let i = nDynSh; i < nDL; i++) add([DLP[i * 4], DLP[i * 4 + 1], DLP[i * 4 + 2]], DLP[i * 4 + 3], [DLC[i * 3], DLC[i * 3 + 1], DLC[i * 3 + 2]]);
+  for (const l of EXL) add(l.p, l.r, l.c);
   cand.sort((a, b) => b.s - a.s); const n = Math.min(8, cand.length);
   for (let i = 0; i < n; i++) { MLP.set([...cand[i].q, cand[i].r], i * 4); MLC.set(cand[i].c, i * 3); }
   g.uniform4fv(P.u['uDL[0]'], MLP); g.uniform3fv(P.u['uDLC[0]'], MLC); g.uniform1i(P.u.uNDL, n);
   return true;
 }
 function setDL0(k) { gl.useProgram(shP.p); gl.uniform1i(shP.u.uDL0, k); gl.useProgram(worldP.p); gl.uniform1i(worldP.u.uDL0, k); }
-function capAt(p, r = 64) { SHCAP = false; if (!p) return; if (SUNL && Math.hypot(p[0] - curEye[0], p[1] - curEye[1]) < SMR * 1.3) { SHCAP = true; return; } if (!SHL.length) return; for (const L of SHL) if (Math.hypot(p[0] - L.p[0], p[1] - L.p[1], p[2] - L.p[2]) < L.r + r) { SHCAP = true; return; } }
+function sphereVis(p, r) { for (let k = 0; k < 5; k++) if (FR[k * 4] * p[0] + FR[k * 4 + 1] * p[1] + FR[k * 4 + 2] * p[2] + FR[k * 4 + 3] < -r * Math.hypot(FR[k * 4], FR[k * 4 + 1], FR[k * 4 + 2])) return false; return true; }
+function capAt(p, r = 64) { if (SQM0) sqFlush(); SHCAP = false; capCur = null; DRAWOFF = !!p && !sphereVis(p, r + 24); if (!p) return; capCur = { s: capBuf.n / 9, c: 0, p: p.slice(), r: r + 48 }; CAPR.push(capCur); if (SUNL && Math.hypot(p[0] - curEye[0], p[1] - curEye[1]) < SMR * 1.3) { SHCAP = true; return; } if (!SHL.length) return; for (const L of SHL) if (Math.hypot(p[0] - L.p[0], p[1] - L.p[1], p[2] - L.p[2]) < L.r + r) { SHCAP = true; return; } }
 function capTris(P, idx, n, M) { // world-space triangles of whatever was just drawn (P: xyz + normal per vertex)
   const nt = (n / 3) | 0; let need = capBuf.n + nt * 9;
   if (need > 1 << 22) return;
@@ -3548,9 +3647,27 @@ function capTris(P, idx, n, M) { // world-space triangles of whatever was just d
     const v = (idx ? idx[k] : k) * 6, x = P[v], y = P[v + 1], z = P[v + 2];
     a[o++] = M[0] * x + M[4] * y + M[8] * z + M[12]; a[o++] = M[1] * x + M[5] * y + M[9] * z + M[13]; a[o++] = M[2] * x + M[6] * y + M[10] * z + M[14];
   }
-  capBuf.n = o;
+  if (capCur) capCur.c += (o - capBuf.n) / 9; capBuf.n = o;
 }
 function castOK(g) { return g.kind === 'opaque' && !g.alphaTest && !g.liquid && !g.warp && !g.nocast && !(g.rt && (g.rt.deforms.length || g.rt.stages.some(st => st.aFunc) || g.rt.sort > 6)); }
+// Edges of a group's triangles for silhouette extrusion: a, b, the normal of the triangle that runs a→b, and the normal of the one
+// that runs b→a (zero where there is none — an open edge, a T-junction, or a neighbour in another group, so every group stays closed)
+function groupEdges(T, E) {
+  const nt = T.length / 9, map = new Map(), N = [], key = (x, y, z) => Math.round(x * 8) + ',' + Math.round(y * 8) + ',' + Math.round(z * 8);
+  for (let t = 0; t < nt; t++) {
+    const o = t * 9, ax = T[o], ay = T[o + 1], az = T[o + 2], ux = T[o + 3] - ax, uy = T[o + 4] - ay, uz = T[o + 5] - az, vx = T[o + 6] - ax, vy = T[o + 7] - ay, vz = T[o + 8] - az;
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx; const l = Math.hypot(nx, ny, nz); if (l < 1e-6) { N.push(null); continue; } N.push([nx / l, ny / l, nz / l]);
+    for (let k = 0; k < 3; k++) {
+      const i = o + k * 3, j = o + ((k + 1) % 3) * 3, ki = key(T[i], T[i + 1], T[i + 2]), kj = key(T[j], T[j + 1], T[j + 2]); if (ki === kj) continue;
+      const back = map.get(kj + '|' + ki);
+      if (back && back.n2 === null) { back.n2 = N[t]; continue; }
+      const fw = ki + '|' + kj; if (map.has(fw)) { E.push(T[i], T[i + 1], T[i + 2], T[j], T[j + 1], T[j + 2], ...N[t], 0, 0, 0); continue; } // same direction twice: keep it open
+      map.set(fw, { a: [T[i], T[i + 1], T[i + 2]], b: [T[j], T[j + 1], T[j + 2]], n1: N[t], n2: null });
+    }
+  }
+  for (const e of map.values()) E.push(...e.a, ...e.b, ...e.n1, ...(e.n2 || [0, 0, 0]));
+}
+const mort = p => { const sp = x => { x = Math.max(0, Math.min(1023, (x + 32768) / 64 | 0)); x = (x | (x << 16)) & 0x030000FF; x = (x | (x << 8)) & 0x0300F00F; x = (x | (x << 4)) & 0x030C30C3; return (x | (x << 2)) & 0x09249249; }; return (sp(p[0]) | (sp(p[1]) << 1) | (sp(p[2]) << 2)) >>> 0; };
 function buildWorldCasters(G) {
   if (!gl) return null; const out = [], groups = new Map();
   for (const g of G.values()) {
@@ -3565,10 +3682,15 @@ function buildWorldCasters(G) {
     }
   }
   let n = 0; for (const gr of groups.values()) n += gr.t.length; if (!n) return null;
-  const data = new Float32Array(n), list = []; let o = 0;
-  for (const gr of groups.values()) { data.set(gr.t, o); list.push({ model: gr.model, lo: gr.lo, hi: gr.hi, start: o / 9, count: gr.t.length / 9 }); o += gr.t.length; }
+  const data = new Float32Array(n), list = [], E = []; let o = 0;
+  const gs = [...groups.values()].sort((a, b) => a.model - b.model || mort(a.lo) - mort(b.lo));
+  for (const gr of gs) {
+    data.set(gr.t, o); const es = E.length / 12; groupEdges(gr.t, E);
+    list.push({ model: gr.model, lo: gr.lo, hi: gr.hi, start: o / 9, count: gr.t.length / 9, estart: es, ecount: E.length / 12 - es }); o += gr.t.length;
+  }
   const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
-  return { buf, groups: list, tris: n / 9 };
+  const ebuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, ebuf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(E), gl.STATIC_DRAW);
+  return { buf, ebuf, groups: list, tris: n / 9, edges: E.length / 12 };
 }
 const svP = gl && prog(gl, H + `in vec2 aK;in vec3 aA;in vec3 aB;in vec3 aC;uniform mat4 uMVP;uniform vec3 uOff;uniform vec4 uL;
 void main(){vec3 a=aA+uOff,b=aB+uOff,c=aC+uOff;vec3 n=cross(b-a,c-a);float s=dot(n,uL.xyz-a);
@@ -3579,7 +3701,7 @@ const litP = gl && prog(gl, H + `in vec3 aPos;in vec2 aUV;in vec2 aLM;in float a
 invariant gl_Position;
 void main(){vW=aPos+uOff;gl_Position=uMVP*vec4(vW,1.);vUV=aUV;vN=aN;}`,
   H + `in vec2 vUV;in vec3 vW;in vec3 vN;uniform sampler2D uTex;uniform vec4 uL;uniform vec3 uLC;uniform vec3 uEye;uniform int uUseN;uniform vec2 uScroll;uniform float uTime;uniform float uAT;uniform int uKind;uniform vec4 uSpot;uniform highp sampler2DShadow uSM;uniform mat4 uSVP;out vec4 o;
-float sunVis(vec3 w){vec4 s=uSVP*vec4(w,1.);vec3 q=s.xyz*.5+.5;if(q.x<0.||q.y<0.||q.x>1.||q.y>1.||q.z>1.)return 1.;float t=1./2048.,v=0.;for(int i=-1;i<=1;i++)for(int j=-1;j<=1;j++)v+=texture(uSM,vec3(q.xy+vec2(i,j)*t,q.z-.0003));return v/9.;}
+uniform float uSMT;uniform int uPCF;float sunVis(vec3 w){vec4 s=uSVP*vec4(w,1.);vec3 q=s.xyz*.5+.5;if(q.x<0.||q.y<0.||q.x>1.||q.y>1.||q.z>1.)return 1.;if(uPCF==0)return texture(uSM,vec3(q.xy,q.z-.0004));float v=0.;for(int i=-1;i<=1;i++)for(int j=-1;j<=1;j++)v+=texture(uSM,vec3(q.xy+vec2(i,j)*uSMT,q.z-.0003));return v/9.;}
 void main(){vec4 tx=texture(uTex,vUV+uScroll*uTime);if(uAT>0.&&tx.a<uAT)discard;
 vec3 V=normalize(uEye-vW);vec3 N=(uUseN==1&&dot(vN,vN)>.25)?normalize(vN):normalize(cross(dFdx(vW),dFdy(vW)));if(dot(N,V)<0.)N=-N;
 vec3 L;float at;if(uKind==2){L=uL.xyz;at=1.;}else{L=uL.xyz-vW;float d=length(L);L/=max(d,1e-3);at=clamp(1.-d/uL.w,0.,1.);if(uSpot.w>-1.5)at*=smoothstep(uSpot.w,mix(uSpot.w,1.,.25),dot(-L,uSpot.xyz));}
@@ -3587,6 +3709,17 @@ float nl=max(dot(N,L),0.);if(at<=0.||nl<=0.)discard;if(uKind==2){at*=sunVis(vW+N
 vec3 R=reflect(-L,N);float lum=dot(tx.rgb,vec3(.3,.59,.11));float sp=pow(max(dot(R,V),0.),24.)*(.25+.55*lum);
 o=vec4(uLC*at*(tx.rgb*nl*1.45+sp*nl),1.);}`, ['aPos', 'aUV', 'aLM', 'aL', 'aN']);
 if (gl) { for (const P of [solidP, litP]) { gl.useProgram(P.p); gl.uniform1i(P.u.uSM, 5); } gl.useProgram(solidP.p); gl.uniform1i(solidP.u.uSunOn, 0); for (const P of [worldP, shP]) { gl.useProgram(P.p); gl.uniform1f(P.u.uAmbK, 1); } gl.useProgram(null); }
+const capP = gl && prog(gl, H + `in vec2 aK;in vec3 aA;in vec3 aB;in vec3 aC;uniform mat4 uMVP;uniform vec3 uOff;uniform vec4 uL;
+void main(){vec3 a=aA+uOff,b=aB+uOff,c=aC+uOff;float s=dot(cross(b-a,c-a),uL.xyz-a);if(s<=0.){gl_Position=vec4(2.,2.,2.,1.);return;}
+int k=int(aK.x+.5);vec3 p=k==0?a:(k==1?b:c);vec3 d=normalize(p-uL.xyz);gl_Position=aK.y>.5?uMVP*vec4(d,0.):uMVP*vec4(p+d*.6,1.);}`, H + `out vec4 o;void main(){o=vec4(0.);}`, ['aK', 'aA', 'aB', 'aC']);
+const edgeP = gl && prog(gl, H + `in vec2 aK;in vec3 aA;in vec3 aB;in vec3 aN1;in vec3 aN2;uniform mat4 uMVP;uniform vec3 uOff;uniform vec4 uL;
+void main(){vec3 a=aA+uOff,b=aB+uOff;vec3 tl=uL.xyz-a;bool f1=dot(aN1,tl)>0.,f2=dot(aN2,tl)>0.;if(f1==f2){gl_Position=vec4(2.,2.,2.,1.);return;}
+vec3 p=(aK.x<.5)==f1?a:b;vec3 d=normalize(p-uL.xyz);gl_Position=aK.y>.5?uMVP*vec4(d,0.):uMVP*vec4(p+d*.6,1.);}`, H + `out vec4 o;void main(){o=vec4(0.);}`, ['aK', 'aA', 'aB', 'aN1', 'aN2']);
+let capVao = null, edgeVao = null;
+function silInit() {
+  const mk = (T, n) => { const v = gl.createVertexArray(); gl.bindVertexArray(v); const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(T), gl.STATIC_DRAW); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 8, 0); for (let k = 1; k <= n; k++) { gl.enableVertexAttribArray(k); gl.vertexAttribDivisor(k, 1); } gl.bindVertexArray(null); return v; };
+  capVao = mk([0, 0, 1, 0, 2, 0, 0, 1, 2, 1, 1, 1], 3); edgeVao = mk([0, 0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 0], 4);
+}
 let svVao = null, svCap = null;
 function svInit() {
   svVao = gl.createVertexArray(); gl.bindVertexArray(svVao);
@@ -3630,19 +3763,32 @@ function shadowPasses(vp, eye, W, H) {
     gl.colorMask(false, false, false, false); gl.disable(gl.BLEND); gl.depthFunc(gl.LESS); gl.stencilFunc(gl.ALWAYS, 0, 255);
     gl.stencilOpSeparate(gl.BACK, gl.KEEP, gl.INCR_WRAP, gl.KEEP); gl.stencilOpSeparate(gl.FRONT, gl.KEEP, gl.DECR_WRAP, gl.KEEP);
     gl.useProgram(svP.p); gl.uniformMatrix4fv(svP.u.uMVP, false, vp); gl.uniform4f(svP.u.uL, L.p[0], L.p[1], L.p[2], L.r); gl.bindVertexArray(svVao);
-    if (world.shadow) for (const g of world.shadow.groups) {
-      let off = Z3; if (g.model) { const st = ms[g.model]; if (st && !st.visible) continue; if (st) off = st.o; }
-      const q = [0, 1, 2].map(i => Math.max(g.lo[i] + off[i], Math.min(L.p[i], g.hi[i] + off[i])));
-      if (Math.hypot(q[0] - L.p[0], q[1] - L.p[1], q[2] - L.p[2]) > L.r) continue;
-      gl.uniform3fv(svP.u.uOff, off); svBind(world.shadow.buf, g.start); gl.drawArraysInstanced(gl.TRIANGLES, 0, 24, g.count);
+    if (world.shadow) { // the level: caps from the triangles facing the light, side quads only along silhouette edges
+      if (!capVao) silInit(); const sh = world.shadow, vis = [];
+      for (const g of sh.groups) {
+        let off = Z3; if (g.model) { const st = ms[g.model]; if (st && !st.visible) continue; if (st) off = st.o; }
+        const q = [0, 1, 2].map(i => Math.max(g.lo[i] + off[i], Math.min(L.p[i], g.hi[i] + off[i])));
+        if (Math.hypot(q[0] - L.p[0], q[1] - L.p[1], q[2] - L.p[2]) <= L.r) vis.push(g, off);
+      }
+      gl.useProgram(capP.p); gl.uniformMatrix4fv(capP.u.uMVP, false, vp); gl.uniform4f(capP.u.uL, L.p[0], L.p[1], L.p[2], L.r); gl.bindVertexArray(capVao); gl.bindBuffer(gl.ARRAY_BUFFER, sh.buf);
+      const runs = (sf, cf, st, nf) => { const out = []; for (let i = 0; i < vis.length; i += 2) { const g = vis[i], off = vis[i + 1], c = g[cf]; if (!c) continue; const l = out[out.length - 1]; if (l && l.off === off && l.s + l.c === g[sf]) l.c += c; else out.push({ s: g[sf], c, off }); } return out; };
+      for (const R of runs('start', 'count')) { gl.uniform3fv(capP.u.uOff, R.off); for (const k of [0, 1, 2]) gl.vertexAttribPointer(k + 1, 3, gl.FLOAT, false, 36, R.s * 36 + k * 12); gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, R.c); }
+      gl.useProgram(edgeP.p); gl.uniformMatrix4fv(edgeP.u.uMVP, false, vp); gl.uniform4f(edgeP.u.uL, L.p[0], L.p[1], L.p[2], L.r); gl.bindVertexArray(edgeVao); gl.bindBuffer(gl.ARRAY_BUFFER, sh.ebuf);
+      for (const R of runs('estart', 'ecount')) { gl.uniform3fv(edgeP.u.uOff, R.off); for (const k of [0, 1, 2, 3]) gl.vertexAttribPointer(k + 1, 3, gl.FLOAT, false, 48, R.s * 48 + k * 12); gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, R.c); }
+      gl.useProgram(svP.p); gl.bindVertexArray(svVao);
     }
-    if (capN) { gl.uniform3fv(svP.u.uOff, Z3); svBind(svCap, 0); gl.drawArraysInstanced(gl.TRIANGLES, 0, 24, capN); }
+    if (capN) { // characters: only those this light reaches, neighbours merged into one draw
+      gl.uniform3fv(svP.u.uOff, Z3); let rs = -1, rc = 0;
+      const flush = () => { if (rc) { svBind(svCap, rs); gl.drawArraysInstanced(gl.TRIANGLES, 0, 24, rc); } rs = -1; rc = 0; };
+      for (const R of CAPR) { if (!R.c) continue; const hit = Math.hypot(R.p[0] - L.p[0], R.p[1] - L.p[1], R.p[2] - L.p[2]) < L.r + R.r; if (!hit) { continue; } if (rs >= 0 && rs + rc === R.s) rc += R.c; else { flush(); rs = R.s; rc = R.c; } }
+      flush();
+    }
     }
     gl.colorMask(true, true, true, true); gl.stencilFunc(gl.EQUAL, 0, 255); gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
     gl.depthFunc(gl.LEQUAL); gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
     gl.useProgram(litP.p); const u = litP.u;
     gl.uniformMatrix4fv(u.uMVP, false, vp); gl.uniform4f(u.uL, L.p[0], L.p[1], L.p[2], L.r); gl.uniform3fv(u.uLC, L.c); gl.uniform3fv(u.uEye, eye);
-    gl.uniform1i(u.uKind, L.sun ? 2 : 0); gl.uniform4fv(u.uSpot, L.spot || [0, 0, 0, -2]); gl.uniform1i(u.uSM, 5); if (L.sun) gl.uniformMatrix4fv(u.uSVP, false, SM.vp);
+    gl.uniform1i(u.uKind, L.sun ? 2 : 0); gl.uniform4fv(u.uSpot, L.spot || [0, 0, 0, -2]); gl.uniform1i(u.uSM, 5); if (L.sun) { gl.uniformMatrix4fv(u.uSVP, false, SM.vp); gl.uniform1f(u.uSMT, 1 / SMN); gl.uniform1i(u.uPCF, PQ().pcf); }
     gl.uniform1i(u.uUseN, world.hasN ? 1 : 0); gl.uniform1f(u.uTime, realTime / 1000); gl.uniform1i(u.uTex, 0); gl.activeTexture(gl.TEXTURE0);
     gl.bindVertexArray(world.vao);
     for (const b of world.opaque) {
@@ -3651,9 +3797,10 @@ function shadowPasses(vp, eye, W, H) {
       let tex = b.anim ? b.anim[Math.floor(realTime / 1000 * b.animFps) % b.anim.length] : b.tex, cut = b.alphaTest ? .5 : 0;
       if (b.rt) { const d = rtDiffuse(b.rt); if (!d) continue; tex = d.tex; cut = d.cut; }
       if (!tex) continue;
+      b.runs = runsFor(b, ch => chunkVis(ch) && boxSphere(ch.lo, ch.hi, L)); if (b.runs && !b.runs.length) continue;
       gl.uniform3fv(u.uOff, off); gl.uniform2fv(u.uScroll, b.rt ? [0, 0] : b.scroll || [0, 0]); gl.uniform1f(u.uAT, cut); gl.bindTexture(gl.TEXTURE_2D, tex);
       if (b.polyOff) { gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(-1, -2); }
-      gl.drawElements(gl.TRIANGLES, b.count, gl.UNSIGNED_INT, b.start * 4);
+      drawB(b);
       if (b.polyOff) gl.disable(gl.POLYGON_OFFSET_FILL);
     }
   }
@@ -3778,7 +3925,7 @@ function drawDecals(vp) {
 }
 function aimMat(p, v) { const yw = Math.atan2(v[1], v[0]) * 180 / Math.PI, pt = -Math.atan2(v[2], Math.hypot(v[0], v[1])) * 180 / Math.PI; return entMat(p, yw, pt); }
 function render(alpha, dt) {
-  const dpr = Math.min(window.devicePixelRatio || 1, 2), W2 = Math.floor(cv.clientWidth * dpr), Hh = Math.floor(cv.clientHeight * dpr);
+  adaptRes(dt); const dpr = Math.min(window.devicePixelRatio || 1, S.light === 'pixel' ? PQ().dpr : 2) * RS.scale, W2 = Math.floor(cv.clientWidth * dpr), Hh = Math.floor(cv.clientHeight * dpr);
   if (cv.width !== W2 || cv.height !== Hh) { cv.width = W2; cv.height = Hh; }
   gl.viewport(0, 0, W2, Hh); gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
   if (!world) return;
@@ -3806,7 +3953,7 @@ function render(alpha, dt) {
   const view = viewMat(eye, f, r, u), vp = mul(perspInf(fovy, aspect, 4), view);
   const time = realTime / 1000;
   updateListener(eye, f, u); hurtA *= Math.exp(-dt * 2.2);
-  gatherLights(eye); glows.length = 0; curEye = eye; frameNo++; pickShadowLights(eye, vp, W2, Hh, dt); capBuf.n = 0; if (SUNL) renderSunMap(eye, W2, Hh);
+  gatherLights(eye); glows.length = 0; curEye = eye; frameNo++; setFrustum(vp); pickShadowLights(eye, vp, W2, Hh, dt); capBuf.n = 0; CAPR.length = 0; capCur = null; if (SUNL) renderSunMap(eye, W2, Hh);
   // sky
   gl.disable(gl.DEPTH_TEST); gl.depthMask(false); gl.disable(gl.CULL_FACE);
   gl.useProgram(skyP.p); gl.uniformMatrix4fv(skyP.u.uMVP, false, vp); gl.uniform3fv(skyP.u.uEye, eye); gl.uniform1f(skyP.u.uTime, time);
@@ -3822,16 +3969,17 @@ function render(alpha, dt) {
   gl.bindVertexArray(world.vao);
   if (world.sky.length) { gl.uniform1f(skyP.u.uScale, 1); for (const b of world.sky) { const s = b.model && world.mstate[b.model]; if (s && !s.visible) continue; gl.uniform3fv(skyP.u.uOff, s ? s.o : Z3); gl.drawElements(gl.TRIANGLES, b.count, gl.UNSIGNED_INT, b.start * 4); } }
   gl.useProgram(worldP.p); gl.uniformMatrix4fv(worldP.u.uMVP, false, vp); gl.uniform1f(worldP.u.uBright, S.bright); gl.uniform1f(worldP.u.uTime, time);
-  gl.uniform4fv(worldP.u['uDL[0]'], DLP); gl.uniform3fv(worldP.u['uDLC[0]'], DLC); gl.uniform1i(worldP.u.uNDL, nDL); gl.uniform1i(worldP.u.uLMode, LMODE()); gl.uniform1i(worldP.u.uDL0, nDynSh); gl.uniform3fv(worldP.u.uEye, eye);
+  const fullPix = SHL.length || SUNL; gl.uniform4fv(worldP.u['uDL[0]'], fullPix ? WLP : DLP); gl.uniform3fv(worldP.u['uDLC[0]'], fullPix ? WLC : DLC); gl.uniform1i(worldP.u.uNDL, fullPix ? WLn : nDL); gl.uniform1i(worldP.u.uLMode, LMODE()); gl.uniform1i(worldP.u.uDL0, 0); gl.uniform3fv(worldP.u.uEye, eye);
   gl.uniform1i(worldP.u.uTex, 0); gl.uniform1i(worldP.u.uLMap, 1); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, world.lmTex);
   camAxes = { r, u }; curFog = null; if (world.fogs) for (const fg of world.fogs) if ([0, 1, 2].every(k => eye[k] >= fg.mins[k] && eye[k] <= fg.maxs[k])) { curFog = fg; break; }
   gl.useProgram(shP.p); gl.uniformMatrix4fv(shP.u.uMVP, false, vp); gl.uniform1f(shP.u.uBright, S.bright); gl.uniform1f(shP.u.uTime, realTime / 1000); gl.uniform3fv(shP.u.uEye, eye);
-  gl.uniform4fv(shP.u['uDL[0]'], DLP); gl.uniform3fv(shP.u['uDLC[0]'], DLC); gl.uniform1i(shP.u.uNDL, nDL); gl.uniform1i(shP.u.uLMode, LMODE()); gl.uniform1i(shP.u.uDL0, nDynSh); gl.uniform1i(shP.u.uTex, 0); gl.uniform1i(shP.u.uLMap, 1);
+  gl.uniform4fv(shP.u['uDL[0]'], fullPix ? WLP : DLP); gl.uniform3fv(shP.u['uDLC[0]'], fullPix ? WLC : DLC); gl.uniform1i(shP.u.uNDL, fullPix ? WLn : nDL); gl.uniform1i(shP.u.uLMode, LMODE()); gl.uniform1i(shP.u.uDL0, 0); gl.uniform1i(shP.u.uTex, 0); gl.uniform1i(shP.u.uLMap, 1);
   if (curFog) { gl.uniform3fv(shP.u.uFogC, curFog.color); gl.uniform1f(shP.u.uFogD, 1 / Math.max(1, curFog.dist)); }
   gl.useProgram(worldP.p);
   drawBatches(world.opaque, false);
   drawDecals(vp);
   const shade = 0.55 + 0.25 * S.bright;
+  SQon = !!solidIP;
   if (S.third && !PL.dead && !attract) { capAt(o); powOn(PL.quad, PL.invul, 'body'); drawPlayerBody(vp, o, shade); powOff(); }
   for (const e of E.barrels) {
     if (e.dead) continue; const b = e.box; capAt([(b.mins[0] + b.maxs[0]) / 2, (b.mins[1] + b.maxs[1]) / 2, b.mins[2] + 20]);
@@ -3853,7 +4001,7 @@ function render(alpha, dt) {
       drawBuiltinMonster(vp, m, M);
     }
   }
-  SHCAP = false; shadowPasses(vp, eye, W2, Hh);
+  sqFlush(); SQon = false; SHCAP = false; DRAWOFF = false; shadowPasses(vp, eye, W2, Hh);
   for (const e of E.items) {
     if (e.taken || e.hidden) continue;
     const vis = itemDef(e);
@@ -4178,7 +4326,7 @@ function drawRT(b, off, inTrans) {
     gl.uniform1i(u.uFogMode, curFog ? (st.add ? 2 : 1) : 0);
     if (st.blended) { gl.enable(gl.BLEND); gl.blendFunc(gl[st.sb], gl[st.db]); } else gl.disable(gl.BLEND);
     gl.depthMask(st.dw); gl.depthFunc(st.deq ? gl.EQUAL : gl.LEQUAL);
-    gl.drawElements(gl.TRIANGLES, b.count, gl.UNSIGNED_INT, b.start * 4);
+    drawB(b);
   }
   gl.bindSampler(0, null); gl.depthFunc(gl.LEQUAL);
   if (b.polyOff) gl.disable(gl.POLYGON_OFFSET_FILL);
@@ -4386,6 +4534,7 @@ function md3Draw(ctx, inst, texs, fa, fb, t, vp, M, shade = 1, amb = .5, raw) {
     g.bindBuffer(g.ARRAY_BUFFER, si.dyn); g.bufferSubData(g.ARRAY_BUFFER, 0, out);
     const tx = texs && texs[k], fx = tx && modelTexFx.get(tx), U = ctx.P.u;
     if (ctx === mainCtx && SHCAP) capTris(out, s.idx, si.n, M);
+    if (ctx === mainCtx && DRAWOFF) return;
     if (fx && fx.rt) { g.bindVertexArray(si.vao); drawModelStages(g, U, si, fx.rt); if (ctx === mainCtx && POWS) { shellDraw(si.vao, si.n, true, M, vp); g.useProgram(ctx.P.p); } return; }
     g.activeTexture(g.TEXTURE0); g.bindTexture(g.TEXTURE_2D, tx || greyTex(ctx)); g.uniform1i(U.uEnv, 0); g.uniform1f(U.uCut, fx && fx.cut ? .5 : 0);
     g.bindVertexArray(si.vao); g.drawElements(g.TRIANGLES, si.n, g.UNSIGNED_INT, 0);
@@ -5432,6 +5581,7 @@ addEventListener('drop', e => { e.preventDefault(); document.body.classList.remo
 function bindRange(id, key, fmt) { const el = $(id), out = $(id + 'V'); el.value = S[key]; out.textContent = fmt(S[key]); el.oninput = () => { S[key] = +el.value; out.textContent = fmt(S[key]); saveS(); if (key === 'vol' && master) master.gain.value = S.vol; }; }
 bindRange('sens', 'sens', v => v.toFixed(1)); bindRange('fov', 'fov', v => v + '°'); bindRange('bright', 'bright', v => v.toFixed(1) + '×'); bindRange('vol', 'vol', v => Math.round(v * 100) + '%');
 { const lt = $('lightMode'); lt.value = S.light || 'lightmap'; lt.onchange = () => { S.light = lt.value; saveS(); }; }
+{ const q = $('pixQ'); q.value = S.pixQ || 'auto'; q.onchange = () => { S.pixQ = q.value; saveS(); }; const d = $('dynRes'); d.checked = S.dynRes !== false; d.onchange = () => { S.dynRes = d.checked; saveS(); }; }
 { const lb = $('lgBeam'); lb.value = S.lgBeam || 'new'; lb.onchange = () => { S.lgBeam = lb.value; saveS(); }; }
 const tk = $('tick'); tk.value = S.tick; tk.onchange = () => { S.tick = +tk.value; saveS(); };
 for (const [id, key, num] of [['skill', 'skill', 1], ['hurt', 'hurt', 0]]) { const el = $(id); el.value = S[key]; el.onchange = () => { S[key] = num ? +el.value : el.value; saveS(); }; }
