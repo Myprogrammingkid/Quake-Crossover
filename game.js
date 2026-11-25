@@ -5,7 +5,7 @@ const Q = window.Q2, $ = id => document.getElementById(id);
 const { ps, pm } = Q;
 
 // ---------- settings ----------
-const S = { sens: 3, fov: 90, bright: 2, tick: 8, run: true, autohop: false, invert: false, vol: 0.7, music: 0.5, model: 'male', skin: 'grunt', third: false, skill: 1, hurt: 'monsters', testEnemies: true, wset: 'q2', pset: 'q2', model3: 'sarge', skin3: 'default', ragdoll: true, allWeapons: false, viewmodel: true, infAmmo: false, light: 'lightmap', pixQ: 'auto', dynRes: true };
+const S = { netMode: 'off', netName: '', sens: 3, fov: 90, bright: 2, tick: 8, run: true, autohop: false, invert: false, vol: 0.7, music: 0.5, model: 'male', skin: 'grunt', third: false, skill: 1, hurt: 'monsters', testEnemies: true, wset: 'q2', pset: 'q2', model3: 'sarge', skin3: 'default', ragdoll: true, allWeapons: false, viewmodel: true, infAmmo: false, light: 'lightmap', pixQ: 'auto', dynRes: true };
 let MAPCAT = null;
 const BOT = { mode: 'dm', fragLimit: 0, timeLimit: 0, over: false, startT: 0, roster: [], on: false, pending: 0, bots: [], frags: 0, deaths: 0, count: 3, lastShooter: null, shooterT: 0, log: [], plan: null, planT: 0 };
 const AMMO = { bullets: 0, shells: 0, grenades: 0, rockets: 0, cells: 0, slugs: 0, lightning: 0, bfgam: 0, nails: 0, mines: 0, belt: 0 };
@@ -889,7 +889,7 @@ function builtinWorld(id) {
   w.ents = B.ents(); w.staticTriggers = B.data().triggers.map(t => ({ ...t })); return w;
 }
 function startBuiltin(id, campaign) { // play a built-in map from the start
-  if (!gl) return; const w = builtinWorld(id); resetPlayer(); campaignMode = !!campaign; resetInventory(!campaign); setWorld(w); loaded = true; lastMapPath = null; startGame();
+  if (!gl) return; if (NET.on && !NET.starting) netStop(); const w = builtinWorld(id); resetPlayer(); campaignMode = !!campaign; resetInventory(!campaign); setWorld(w); loaded = true; lastMapPath = null; startGame();
 }
 let exitT = 0;
 function levelExit(t) { // the exit teleporter of a built-in campaign level
@@ -1112,7 +1112,7 @@ function updateListener(e, f, u) {
 }
 const BUILTIN_SND = new Set(['fire', 'boom', 'gboom', 'blaster', 'hyper', 'hyperLoop', 'hyperDown', 'shotgun', 'sshotgun', 'mg1', 'mg2', 'mg3', 'mg4', 'mg5', 'cgUp', 'cgLoop', 'cgDown', 'gl', 'gbounce', 'hgPin', 'hgThrow', 'hgCook', 'hgBounce1', 'hgBounce2', 'rail', 'bfgCharge', 'bfgBoom', 'lashit', 'ric1', 'ric2', 'ric3']);
 const SYNTH_ALIAS = { q3mg1: 'mg1', q3mg2: 'mg2', q3mg3: 'mg3', q3mg4: 'mg4', q3sg: 'sshotgun', q3gl: 'gl', q3gb1: 'gbounce', q3gb2: 'gbounce', q3rl: 'fire', q3boom: 'boom', q3lgFire: 'lashit', q3rg: 'rail', q3pg: 'hyper', q3pgHit: 'lashit', q3bfg: 'bfgCharge', q3gauntHit: 'land', q3ngFire: 'sshotgun', q3ngHit: 'lashit', q3ngHitMetal: 'lashit', q3ngHitFlesh: 'lashit', q3pxFire: 'gl', q3pxStick: 'gbounce', q3pxStickMetal: 'gbounce', q3pxActv: 'button', q3pxTick: 'button', q3cg1: 'mg1', q3cg2: 'mg2', q3cg3: 'mg3', q3cg4: 'mg4', q3change: 'button', jumppad: 'push', telein: 'tele', watrSplash: 'watrIn' };
-function play(k, vol = 1) { if (running && E && !PL.dead) hearSound(playerCenter(), loudOf(k), 'player', k); if (!AC) return; if (S.wset === 'builtin' && BUILTIN_SND.has(k)) { synth(k, vol); return; } const b = getSnd(keyPath(k)); if (b) playBuf(b, vol); else if (b === null) synth(k, vol); }
+function play(k, vol = 1) { if (NETCAP && NETCAP.s.length < 4) NETCAP.s.push(k); if (running && E && !PL.dead) hearSound(playerCenter(), loudOf(k), 'player', k); if (!AC) return; if (S.wset === 'builtin' && BUILTIN_SND.has(k)) { synth(k, vol); return; } const b = getSnd(keyPath(k)); if (b) playBuf(b, vol); else if (b === null) synth(k, vol); }
 function playAt(k, p, vol = 1, attn = 1, src = 'world', owner) {
   if (E && p && src) hearSound(p, loudOf(k), src, k, owner);
   if (!AC || !p) return; const b = S.wset === 'builtin' && BUILTIN_SND.has(k) ? null : getSnd(keyPath(k));
@@ -1431,7 +1431,7 @@ function trainUse(e) {
   if (e.running) { if (!(e.spawnflags & 2)) return; e.running = false; e.paused = e.moveTo; e.moveTo = null; e.think = null; return; }
   if (e.paused) { e.moveTo = e.paused; e.paused = null; e.running = true; } else trainNext(e);
 }
-function damageEnt(e, dmg, src) { if (src !== 'monster' && PL.quad > simTime) dmg *= 4; if (e.isMonster) { damageMonster(e, dmg, src); return; } if (!e.takedamage || e.dead) return; e.health -= dmg; if (e.health <= 0) { e.takedamage = false; e.die && e.die(); } }
+function damageEnt(e, dmg, src) { if (NETGHOST) return; if (src !== 'monster' && PL.quad > simTime) dmg *= 4; if (e.isMonster) { damageMonster(e, dmg, src); return; } if (!e.takedamage || e.dead) return; e.health -= dmg; if (e.health <= 0) { e.takedamage = false; e.die && e.die(); } }
 // move a brush entity, pushing (or being blocked by) the player
 function carryRiders(e, old) { // bots and monsters standing on a mover go where it goes
   const st = e.st, d = [st.o[0] - old[0], st.o[1] - old[1], st.o[2] - old[2]]; if (!d[0] && !d[1] && !d[2]) return;
@@ -1699,6 +1699,7 @@ function fxBFG(p) {
   addLight(p, 650, [.4, 1.3, .4], 1.0); nearFx(p, 1.4);
 }
 function fxImpact(t, kind) {
+  if (NETCAP && NETCAP.i.length < 12 && t.endpos && t.normal) NETCAP.i.push([...t.endpos.map(nr1), ...t.normal.map(nr1), kind]);
   if (world && world.q3 && (t.surf & 0x10)) return; // surfaceparm noimpact
   const p = t.endpos, n = t.normal;
   const sparks = kind === 'shotgun' ? 5 : kind === 'blaster' ? 26 : kind === 'rail' ? 18 : 9;
@@ -1729,6 +1730,7 @@ function fxTrail(pr, dist) {
   }
 }
 function fxBeam(a, b, kind) { // railgun spiral (CL_RailTrail) and BFG lasers
+  if (NETCAP && NETCAP.b.length < 6) NETCAP.b.push([...a.map(nr1), ...b.map(nr1), kind]);
   const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], len = Math.hypot(...d); if (len < 1) return;
   const f = d.map(x => x / len), up0 = Math.abs(f[2]) < .9 ? [0, 0, 1] : [1, 0, 0], R = nrm(Q.cross(f, up0)), U = Q.cross(R, f);
   if (kind === 'rail') {
@@ -1769,11 +1771,12 @@ function canDamage(src, targ) {
   return false;
 }
 function canDamageEnt(p, e) { const ec = entCenter(e), t = Q.trace(p, Z3, Z3, ec, Q.MASK_SOLID); return t.fraction === 1 || t.hit === e; }
-function knockPlayer(from, points, scale) { // T_Damage knockback: 1600*k/mass for self ("rocket jump hack"), 500*k/mass otherwise
+function knockPlayer(from, points, scale) { if (NETGHOST) return; // T_Damage knockback: 1600*k/mass for self ("rocket jump hack"), 500*k/mass otherwise
   const o = ps.origin.map(v => v / 8), dir = nrm([o[0] - from[0], o[1] - from[1], o[2] - from[2]]), k = (scale || 1600) * Math.trunc(points) / 200;
   for (let i = 0; i < 3; i++) ps.velocity[i] = Math.max(-32768, Math.min(32767, Math.trunc(ps.velocity[i] + dir[i] * k * 8)));
 }
 function radiusDamage(p, dmg, radius, ignore, attacker) { // T_RadiusDamage
+  if (NETGHOST) { ragdollPush(p, radius * 1.3, dmg * 10); return; }
   attacker = attacker || 'player'; const self = attacker === 'player';
   const o = ps.origin.map(v => v / 8), c = [0, 1, 2].map(i => o[i] + (pm.mins[i] + pm.maxs[i]) / 2), dist = Math.hypot(p[0] - c[0], p[1] - c[1], p[2] - c[2]);
   if (ignore !== 'player' && !ps.noclip && !PL.dead && dist <= radius) { let pts = dmg - .5 * dist; if (self) pts *= .5; if (pts > 0 && canDamage(p, o)) { knockPlayer(p, pts, self ? 1600 : 500); damagePlayer(pts, p, self); } }
@@ -1791,6 +1794,7 @@ function radiusDamage(p, dmg, radius, ignore, attacker) { // T_RadiusDamage
 }
 const boxDist = (p, b) => Math.hypot(...[0, 1, 2].map(i => p[i] < b.mins[i] ? b.mins[i] - p[i] : p[i] > b.maxs[i] ? p[i] - b.maxs[i] : 0));
 function radiusDamageQ3(p, dmg, radius, ignore) { // G_RadiusDamage: linear falloff to the bbox edge, knockback 1000*k/mass with +24 up
+  if (NETGHOST) return;
   if (ignore !== 'player' && !ps.noclip && !PL.dead) {
     const d0 = boxDist(p, playerBox());
     if (d0 < radius) { const pts = dmg * (1 - d0 / radius); if (pts > 0 && canDamage(p, ps.origin.map(v => v / 8))) { const c = playerCenter(), dir = nrm([c[0] - p[0], c[1] - p[1], c[2] - p[2] + 24]), k = 1000 * Math.min(200, pts) / 200; for (let i = 0; i < 3; i++) ps.velocity[i] = Math.max(-32768, Math.min(32767, Math.trunc(ps.velocity[i] + dir[i] * k * 8))); damagePlayer(pts * .5, p, true); } }
@@ -1949,7 +1953,7 @@ function weaponGeneric(d) {
     if (d.ff.includes(W.frame)) {
       const f0 = W.frame, a = Q2_AMMO[W.cur], cost = a && (W.cur === 1 && f0 === 9 ? 0 : W.cur === 9 && f0 !== 17 ? 0 : a[1]);
       if (ammoOn() && cost && AMMO[a[0]] < cost) { W.state = 'ready'; W.frame = IDLE_FIRST; noAmmo(); return; }
-      d.fn(); if (cost) spendAmmo([a[0], cost]);
+      { const nc = netCapBegin(); d.fn(); netCapEnd(nc); } if (cost) spendAmmo([a[0], cost]);
     } else W.frame++;
     if (W.frame === IDLE_FIRST + 1) W.state = 'ready';
   }
@@ -2083,7 +2087,7 @@ let nailSndT = -1e9;
 function updateProjectiles(msec) {
   const dt = msec / 1000;
   for (let i = projs.length - 1; i >= 0; i--) {
-    const pr = projs[i]; pr.life -= msec;
+    const pr = projs[i]; pr.life -= msec; NETGHOST = !!pr.ghost;
     if (pr.type === 'prox') { updateProx(pr, i, msec); continue; }
     if (pr.type === 'grenade') {
       if (pr.life <= 0) { projs.splice(i, 1); grenadeExplode(pr); continue; }
@@ -2141,6 +2145,7 @@ function updateProjectiles(msec) {
     } else if (pr.life <= 0) projs.splice(i, 1);
     else pr.p = end;
   }
+  NETGHOST = false;
 }
 
 // ---------- player health, armor, powerups ----------
@@ -2150,6 +2155,7 @@ const canHurt = () => BOT.on || S.hurt === 'always' || (S.hurt === 'monsters' &&
 function playerBox(o) { o = o || ps.origin.map(v => v / 8); return { mins: [o[0] + pm.mins[0], o[1] + pm.mins[1], o[2] + pm.mins[2]], maxs: [o[0] + pm.maxs[0], o[1] + pm.maxs[1], o[2] + pm.maxs[2]] }; }
 function playerCenter() { const o = ps.origin.map(v => v / 8); return [o[0], o[1], o[2] + (pm.mins[2] + pm.maxs[2]) / 2]; }
 function damagePlayer(dmg, from, selfInflicted) {
+  if (NETGHOST) return;
   if (PL.dead || ps.noclip || PL.god || !canHurt() || dmg <= 0) return;
   if (PL.invul > simTime) { if (simTime > PL.painT) { PL.painT = simTime + 500; play('protect', .7); } return; }
   dmg = Math.max(1, Math.trunc(dmg));
@@ -2180,7 +2186,7 @@ function makePlayerRagdoll() {
 function playerDie() {
   if (S.ragdoll) makePlayerRagdoll(); else PL.rag = null;
   PL.dead = true; PL.deadT = simTime; PL.health = Math.min(PL.health, 0); setLoop(null);
-  if (BOT.on) { BOT.deaths++; if (BOT.lastShooter && simTime - BOT.shooterT < 4000) BOT.lastShooter.frags++; }
+  if (NET.on) netDied(); else if (BOT.on) { BOT.deaths++; if (BOT.lastShooter && simTime - BOT.shooterT < 4000) BOT.lastShooter.frags++; }
   const b = AC && getSnd(sexed(`death${1 + (Math.random() * 4 | 0)}.wav`)); if (b) playBuf(b, 1); else synth('land', 1);
   $('dead').hidden = false; $('deadSub').textContent = spLike() ? 'loading options…' : 'click / fire / jump to respawn';
 }
@@ -2342,7 +2348,7 @@ function touchItems() {
     if (d.maxh) PL.maxHealth += d.maxh;
     if (d.key) E.keys.add(e.cls);
     const ai = AMMO_ITEM[e.cls]; if (d.am && ai) { if (ammoOn() && AMMO[ai[0]] >= MAXAM[ai[0]]) continue; addAmmo(ai[0], q3i ? ai[2] : ai[1]); }
-    e.taken = true; giveWeapon(e.cls); if (BOT.on && BOT.mode === 'dm' && !d.key) e.respawnAt = simTime + (q3i ? (d.w ? 5000 : d.quad || d.inv ? 120000 : d.am ? 40000 : d.h ? 35000 : 25000) : (d.w ? 8000 : d.quad || d.inv ? 90000 : 25000));
+    e.taken = true; giveWeapon(e.cls); if (BOT.on && BOT.mode === 'dm' && !d.key) e.respawnAt = simTime + (q3i ? (d.w ? 5000 : d.quad || d.inv ? 120000 : d.am ? 40000 : d.h ? 35000 : 25000) : (d.w ? 8000 : d.quad || d.inv ? 90000 : 25000)); if (NET.on) netPickup(e);
     const snd = d.s || (d.w ? 'misc/w_pkup.wav' : d.am ? 'misc/am_pkup.wav' : 'items/pkup.wav'), b = AC && getSnd(snd); if (b) playBuf(b, .8); else if (b === null) synth('pickup', .8);
     toast('You got the ' + d.n, 1500);
     useTargets(e, 'player');
@@ -2503,6 +2509,7 @@ function flyToward(m, P, dist) {
   return moveToGoal(m, want, dist);
 }
 function monsterPhysics(m, dt) {
+  if (m.net) return;
   if (m.hidden || m.gibbed || m.rag) return;
   const flying = (m.mon.fly !== undefined || m.mon.swim) && !m.dead;
   const v = m.vel, moving = Math.abs(v[0]) + Math.abs(v[1]) + Math.abs(v[2]) > 1;
@@ -2575,6 +2582,7 @@ function attackStep(m, P, d) {
   else if (!m.fired && f >= .45) { m.fired = true; monsterFire(m, m.spec, P); }
 }
 function monsterThink(m) {
+  if (m.net) { netEntStep(m); return; }
   if (m.hidden || m.gibbed) return;
   groundCheck(m);
   advanceAnim(m);
@@ -2714,7 +2722,7 @@ const BOT_GUNS = [ // 0 machinegun, 1 shotgun, 2 rocket launcher — Quake II's 
   { spec: ['mg', 6], rate: 110, q2: 3, q3: 1 }, { spec: ['shotgun', 4], rate: 1000, q2: 1, q3: 2 }, { spec: ['rocket', 55, 650], rate: 1150, q2: 6, q3: 4 }];
 const BOT_GUNS_Q3 = [ // Quake III bots shoot Quake III's: a faster-firing machinegun, a rocket launcher that hits harder and flies quicker
   { spec: ['mg', 7], rate: 100, q2: 3, q3: 1 }, { spec: ['shotgun', 5], rate: 1000, q2: 1, q3: 2 }, { spec: ['rocket', 100, 900], rate: 800, q2: 6, q3: 4 }];
-const botGun = m => (m.set === 'q3' ? BOT_GUNS_Q3 : BOT_GUNS)[m.wpn || 0];
+const botGun = m => m.netGun || (m.set === 'q3' ? BOT_GUNS_Q3 : BOT_GUNS)[m.wpn || 0];
 const BOT_COL = { torso: [.6, .16, .14, 1], limb: [.45, .12, .1, 1], head: [.95, .75, .3, 1], boot: [.18, .1, .08, 1] };
 const d3 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 function pickSpawnIdx() { // the spawn point farthest from everyone alive
@@ -2757,7 +2765,7 @@ function beginBotMatch(n) {
   campaignMode = true; resetPlayer(); resetInventory(false);
   respawn(pickSpawnIdx());
   for (let i = 0; i < n; i++) spawnBot();
-  toast(`Deathmatch — ${BOT.bots.map(b => b.name).join(', ')}. Ammo and health are real; items respawn.`, 4000);
+  if (!NET.on) toast(`Deathmatch — ${BOT.bots.map(b => b.name).join(', ')}. Ammo and health are real; items respawn.`, 4000);
 }
 let lastMapPath = null;
 function startBotMatch(n, path, mode, rules) { // path: a map, 'test' for the built-in one, or nothing for the last map played
@@ -2773,7 +2781,7 @@ function matchLine() { // the score line, with limits
   return `FRAGS ${BOT.frags}${BOT.fragLimit ? ' / ' + BOT.fragLimit : ''}  ·  DEATHS ${BOT.deaths}${clock}\n` + BOT.bots.map(b => `${b.name} ${b.frags}`).join('  ·  ');
 }
 function checkMatchEnd() {
-  if (BOT.over || !BOT.on) return; let msg = null;
+  if (BOT.over || !BOT.on || NET.on) return; let msg = null;
   const best = BOT.bots.reduce((a, b) => b.frags > a.frags ? b : a, { frags: -1, name: '' });
   if (BOT.mode === 'dm' && BOT.fragLimit && (BOT.frags >= BOT.fragLimit || best.frags >= BOT.fragLimit)) msg = BOT.frags >= best.frags ? `Frag limit reached — you win with ${BOT.frags} frags!` : `Frag limit reached — ${best.name} wins with ${best.frags} frags.`;
   if (!msg && BOT.timeLimit && simTime - BOT.startT >= BOT.timeLimit * 60000) {
@@ -2788,7 +2796,7 @@ function updateBots() {
   if (NAV.w !== world || NAV.E !== E) { NAV.w = world; NAV.E = E; navReset(); BOT.log = []; BOT.plan = null; BOT.planT = 0; }
   navPump();
   if (BOT.mode === 'coop' && simTime >= BOT.planT) { BOT.planT = simTime + 900; squadPlan(); }
-  for (const m of BOT.bots) if (m.dead && simTime >= m.respawnAt) botRespawn(m);
+  for (const m of BOT.bots) if (m.dead && !m.net && simTime >= m.respawnAt) botRespawn(m);
   for (const e of E.items) if (e.taken && e.respawnAt && simTime >= e.respawnAt) { e.taken = false; e.respawnAt = 0; addLight(e.o, 120, [.6, .8, 1], .4); }
 }
 function botRespawn(m) {
@@ -2806,6 +2814,7 @@ function botRagdoll(m) {
   m.rag = createRagdoll(box);
 }
 function damageBot(m, dmg, src) {
+  if (m.net) { netHitOut(m, dmg); return; }
   if (m.dead || m.hidden || !m.takedamage) return; if (m.ally && src !== 'monster') return; if (m.inv > simTime) { if (simTime >= (m.painT || 0)) { m.painT = simTime + 500; playAt('protect', m.o, .7); } return; } m.lastDmg = dmg; if (m.ally) m.combatT = simTime; hearSound(m.o, 700, 'bot', 'pain', m);
   const save = Math.min(m.armorB || 0, Math.ceil(dmg * .6)); m.armorB = (m.armorB || 0) - save; m.health -= dmg - save;
   if (m.health <= 0) { botDie(m, src !== 'monster'); return; }
@@ -3251,6 +3260,7 @@ function runMonsters(msec) {
   const dt = msec / 1000;
   if (BOT.on) updateBots();
   for (const m of E.monsters) {
+    if (m.net) { netEntStep(m); continue; }
     if (m.gibbed || m.hidden) continue;
     monsterPhysics(m, dt);
     m.thinkT -= msec; if (m.thinkT > 0) continue; m.thinkT += 100;
@@ -3273,6 +3283,7 @@ function tick(msec) {
   runEntities(msec);
   tickRagdolls(msec);
   cmdFromInput(msec);
+  netTick();
   if (PL.dead) { const c = pm.cmd; c.forwardmove = c.sidemove = c.upmove = 0; if (spLike()) {
     if (squadAlive() && simTime - PL.deadT < 180000) { // your squad is still fighting: you stay down until the area is clear, then rejoin beside them
       if (PL.calmT === undefined || PL.calmT < PL.deadT) PL.calmT = PL.deadT;
@@ -4780,7 +4791,7 @@ function weaponTickQ3(msec) {
   const a3 = Q3_AMMO[W3.cur];
   if (ammoOn() && a3 && AMMO[a3[0]] < a3[1]) { setLoop(null); noAmmo(); W3.time += 500; return; }
   if (d.loop) setLoop(d.loop);
-  if (d.fn() === false) return;
+  const nc = netCapBegin(), fr = d.fn(); netCapEnd(nc); if (fr === false) return;
   if (a3) spendAmmo(a3);
   W3.time += d.refire; setTorso(gaunt() ? QA.TORSO_ATTACK2 : QA.TORSO_ATTACK, true); // every shot restarts the attack animation (ANIM_TOGGLEBIT)
 }
@@ -5478,10 +5489,354 @@ $('playDemo').onclick = () => startBuiltin('test', false);
 $('playKappa').onclick = () => startBuiltin('kappa', true);
 function resetPlayer() { PL.dead = false; PL.health = 100; PL.maxHealth = 100; PL.armor = 0; PL.armorFrac = 0; PL.quad = PL.invul = 0; $('dead').hidden = true; }
 $('resume').onclick = () => startGame();
-$('botBtn').onclick = () => startBotMatch(+$('botCount').value, $('mpMap').value, $('matchMode').value, { frag: +$('mpFrag').value, time: +$('mpTime').value });
+$('botBtn').onclick = () => { if ((S.netMode || 'off') !== 'off') { netHostOnline(); return; } if (NET.on) netStop(); startBotMatch(+$('botCount').value, $('mpMap').value, $('matchMode').value, { frag: +$('mpFrag').value, time: +$('mpTime').value }); };
+{ const nm = $('netMode'); nm.value = S.netMode || 'off'; nm.onchange = () => { S.netMode = nm.value; saveS(); refreshNetUI(); }; const nn = $('netName'); if (!S.netName) S.netName = 'Player' + (100 + Math.random() * 900 | 0); nn.value = S.netName; nn.onchange = () => { S.netName = NC.clean(nn.value) || 'Player'; nn.value = S.netName; saveS(); };
+  $('cloudJoinBtn').onclick = () => cloudJoin($('cloudCode').value, false); $('netLeave').onclick = () => { netStop(); if (BOT.on) { BOT.on = false; } };
+  $('lanInvite').onclick = async () => { try { if (!NET.on || !NET.host || NET.mode !== 'lan') { netStatus('Host the LAN game first.', true); return; } $('lanOffer').value = 'Making invite…'; $('lanOffer').value = await NET.tr.invite(); netStatus('Send this invite to one player; paste their reply below.'); } catch (e) { netStatus(e.message, true); } };
+  $('lanAccept').onclick = async () => { try { await NET.tr.accept($('lanReply').value); $('lanReply').value = ''; netStatus('Connecting the player…'); } catch (e) { netStatus(e.message, true); } };
+  $('lanJoinBtn').onclick = async () => { try { if (typeof RTCPeerConnection !== 'function') throw new Error('This browser has no WebRTC.'); $('lanMyReply').value = 'Making reply…'; $('lanMyReply').value = await lanJoin($('lanJoinCode').value); netStatus('Send this reply to the host. The game starts when they paste it.'); } catch (e) { netStatus(e.message, true); } };
+  for (const [b, t] of [['lanCopyOffer', 'lanOffer'], ['lanCopyReply', 'lanMyReply']]) $(b).onclick = () => { const v = $(t).value; navigator.clipboard && navigator.clipboard.writeText(v).then(() => netStatus('Copied.'), () => { $(t).select(); }); };
+  $('dedConnect').onclick = () => dedConnect($('dedUrl').value);
+  setTimeout(refreshNetUI, 0); }
 $('botCount').value = String(BOT.count); $('botCount').onchange = () => { BOT.count = +$('botCount').value; fillBotSlots(); };
 $('matchMode').onchange = fillMpMap; fillMpMap();
 $('botSkill').value = String(S.skill); $('botSkill').onchange = () => { S.skill = +$('botSkill').value; $('skill').value = String(S.skill); saveS(); };
+// ---------- online multiplayer: Cloud (the artifact's room), LAN (WebRTC with copy-paste codes), Dedicated (WebSocket to server.js) ----------
+// Each player runs their own movement and shooting. They tell everyone where they are (20 times a second) and what their shots looked like;
+// whoever shoots decides whether they hit, and the one hit takes the damage. The match itself (frags, item pickups, limits, restarts) is kept
+// by one authority (netcore.js): the host's browser, or the dedicated server. Remote players are bot entities driven by those reports.
+const NC = window.NetCore;
+const NET = { on: false, mode: 'off', me: null, host: false, auth: null, tr: null, roster: [], ents: new Map(), lastAtk: null, stT: 0, fx: null, fxT: 0, hits: new Map(), pend: null, prevWset: null, starting: false, authT: 0, code: '' };
+let NETCAP = null, NETGHOST = false;
+const nr1 = x => Math.round(x * 10) / 10;
+const finite = a => Array.isArray(a) && a.every(x => typeof x === 'number' && isFinite(x));
+const vec3ok = a => finite(a) && a.length === 3 && a.every(x => Math.abs(x) < 1e5);
+const netStatus = (t, err) => { const s = $('netStatus'); if (s) { s.textContent = t; s.classList.toggle('err', !!err); } };
+function netOut(m) { // from this player
+  if (!NET.on || !NET.tr) return;
+  if (NC.REQ_KINDS.has(m.k)) { if (NET.auth) NET.auth.onMsg(NET.me, m); else NET.tr.req(m); }
+  else NET.tr.bcast(m);
+}
+function authSend(to, m) { // from the authority this browser hosts
+  if (to === null || to === NET.me) netIn('auth', m);
+  if (to !== NET.me && NET.tr) NET.tr.authOut(to, m);
+}
+function netIn(from, m) {
+  if (!NET.on || !m || typeof m !== 'object') return;
+  const A = from === 'auth';
+  if (NC.AUTH_KINDS.has(m.k) !== A) return; // authority messages only from the authority, player messages only from players
+  switch (m.k) {
+    case 'welcome': netBegin(m); break;
+    case 'roster': if (Array.isArray(m.list)) netRoster(m.list); break;
+    case 'item': { if (m.by === NET.me) break; const e = E && E.items[m.i | 0]; if (e && !e.taken) { e.taken = true; e.respawnAt = simTime + Math.max(1000, NC.num(m.r, 25000)); } break; }
+    case 'frag': {
+      const nm = id => id === NET.me ? 'You' : NC.clean((NET.roster.find(r => r.id === id) || {}).name) || 'Someone';
+      if (m.by === NET.me) toast(`You fragged ${nm(m.v)}`, 1800); else if (m.v === NET.me) toast(m.by ? `${nm(m.by)} fragged you` : 'You died', 1800);
+      else toast(m.by ? `${nm(m.by)} fragged ${nm(m.v)}` : `${nm(m.v)} died`, 1500); break;
+    }
+    case 'over': BOT.over = true; toast(NC.clean(m.text, 120) + '  ·  next round in 10 s', 9000); setStatus(NC.clean(m.text, 120)); break;
+    case 'restart': BOT.over = false; BOT.startT = simTime; if (E) for (const e of E.items) { e.taken = false; e.respawnAt = 0; } respawnPlayer(); toast('New round!', 2000); break;
+    case 'bye': netDespawn(m.id); break;
+    case 'full': netStop('That game is full.'); break;
+    case 'st': netState(from, m); break;
+    case 'fire': netFire(from, m); break;
+    case 'hit': if (m.to === NET.me) netHitIn(from, m); break;
+  }
+}
+function setWsetTemp(v) { if (S.wset === v) return; S.wset = v; $('wset').value = v; setLoop(null); W.next = W3.next = -1; W.state = W3.state = 'ready'; W3.time = 0; ensureOwnedWeapon(); updateWeaponHud(true); }
+function netBegin(m) {
+  if (typeof m.you === 'string') NET.me = m.you;
+  const map = String(m.map || 'test');
+  if (!BUILTIN_MAPS[map] && !VFS.has(map)) { netStop(`This game is on ${map}. Load the pak or pk3 that has it, then join again.`); return; }
+  if (['builtin', 'q2', 'q3'].includes(m.wset) && m.wset !== S.wset) { if (NET.prevWset === null) NET.prevWset = S.wset; setWsetTemp(m.wset); }
+  NET.welcomed = true;
+  NET.pend = { items: Array.isArray(m.items) ? m.items : [], elapsed: NC.num(m.elapsed), at: realTime };
+  if (Array.isArray(m.list)) NET.roster = m.list;
+  const rules = m.rules || {};
+  NET.starting = true;
+  try { BOT.mode = 'dm'; BOT.fragLimit = NC.num(rules.frag) | 0; BOT.timeLimit = NC.num(rules.time) | 0; startBotMatch(0, map, 'dm'); } finally { NET.starting = false; }
+  BOT.over = !!m.over;
+  netStatus(NET.host ? `Hosting${NET.code ? ' — code ' + NET.code : ''}. Waiting for players…` : 'Connected.');
+  $('netLeave').hidden = false;
+}
+function netRoster(list) {
+  NET.roster = list.filter(r => r && typeof r.id === 'string').slice(0, 32);
+  const me = NET.roster.find(r => r.id === NET.me); if (me) { BOT.frags = NC.num(me.frags) | 0; BOT.deaths = NC.num(me.deaths) | 0; }
+  for (const r of NET.roster) { const e = NET.ents.get(r.id); if (e) { e.frags = NC.num(r.frags) | 0; e.deaths = NC.num(r.deaths) | 0; e.name = NC.clean(r.name) || 'Player'; } }
+  for (const id of [...NET.ents.keys()]) if (!NET.roster.some(r => r.id === id)) netDespawn(id);
+  if (NET.host) { const n = NET.roster.length; netStatus(`Hosting${NET.code ? ' — code ' + NET.code : ''} · ${n} player${n === 1 ? '' : 's'}`); if (NET.mode === 'cloud' && NET.lobby) NET.lobby.presence({ g: { c: NET.code, n: NC.clean(S.netName) || 'Player', m: w_name(lastMapPath || 'test'), p: n } }).catch(() => {}); }
+}
+function netSpawn(r) {
+  if (!world || !E || !BOT.on) return null;
+  const sp = world.spawns[0] || { o: [0, 0, 0], yaw: 0 }, e = { cls: 'bot', kv: {}, spawnflags: 0, origin: [sp.o[0], sp.o[1], sp.o[2] + 9], classname: 'bot' };
+  setupMonster(e, world.cm); PL.total--;
+  const set = ['builtin', 'q2', 'q3'].includes(r.set) ? r.set : 'builtin';
+  Object.assign(e, { bot: true, net: true, netId: r.id, netE: E, ally: false, name: NC.clean(r.name) || 'Player', set, model: set === 'builtin' ? null : NC.clean(r.model, 32) || null, skin: NC.clean(r.skin, 32) || null, hue: NC.num(r.hue) | 0,
+    frags: NC.num(r.frags) | 0, deaths: NC.num(r.deaths) | 0, fireT: 0, wpn: 0, burst: 0, enemy: false, snaps: [], hidden: true, dead: true, takedamage: false, netGun: { q2: 6, q3: 4 } });
+  e.box.active = false; BOT.bots.push(e); loadBotModel(e); NET.ents.set(r.id, e); return e;
+}
+function netDespawn(id) {
+  const e = NET.ents.get(id); if (!e) return; NET.ents.delete(id);
+  e.hidden = true; e.dead = true; e.takedamage = false; if (e.box) e.box.active = false;
+  const del = (a, x) => { const i = a.indexOf(x); if (i >= 0) a.splice(i, 1); };
+  del(BOT.bots, e); if (e.netE) { del(e.netE.monsters, e); del(e.netE.damageables, e); }
+}
+function netEnsure() {
+  if (!BOT.on || !world || !E || BOT.pending) return;
+  for (const [id, e] of NET.ents) if (e.netE !== E) NET.ents.delete(id); // a new level was loaded
+  for (const r of NET.roster) if (r.id !== NET.me && !NET.ents.has(r.id)) netSpawn(r);
+  if (NET.pend) {
+    const p = NET.pend; NET.pend = null; BOT.startT = simTime - p.elapsed - (realTime - p.at);
+    for (const it of p.items) { if (!finite(it) || it.length < 2) continue; const e = E.items[it[0] | 0]; if (e) { e.taken = true; e.respawnAt = simTime + it[1]; } }
+  }
+}
+function netState(from, s) {
+  const e = NET.ents.get(from); if (!e || !vec3ok(s.o)) return;
+  const snap = { t: realTime, o: s.o, v: vec3ok(s.v) ? s.v : [0, 0, 0], y: NC.num(s.y), a: !!s.a, q: !!s.q, i: !!s.i, w2: NC.num(s.w2, 6) | 0, w3: NC.num(s.w3, 4) | 0, lg: !!s.lg };
+  e.snaps.push(snap); if (e.snaps.length > 10) e.snaps.shift();
+}
+function netEntStep(m) { // interpolate 100 ms behind what was last heard
+  const S2 = m.snaps; if (!S2.length) return;
+  const T = realTime - 100; let a = S2[0], b = S2[S2.length - 1];
+  for (let i = 0; i + 1 < S2.length; i++) if (S2[i].t <= T && S2[i + 1].t >= T) { a = S2[i]; b = S2[i + 1]; break; }
+  let k = b.t > a.t ? Math.max(0, Math.min(1, (T - a.t) / (b.t - a.t))) : 1; if (T > b.t) { a = b; k = 1; }
+  if (Math.hypot(b.o[0] - a.o[0], b.o[1] - a.o[1], b.o[2] - a.o[2]) > 300) k = 1; // a respawn or teleport: no sliding across the map
+  const cur = k >= 1 ? b : a;
+  m.o = [0, 1, 2].map(i => a.o[i] + (b.o[i] - a.o[i]) * k); m.vel = b.v.slice();
+  let dy = ((b.y - a.y) % 360 + 540) % 360 - 180; m.yaw = a.y + dy * k;
+  if (Math.hypot(m.vel[0], m.vel[1]) > 40) m.moveT = simTime;
+  m.quad = b.q ? simTime + 10000 : 0; m.inv = b.i ? simTime + 10000 : 0; m.netGun = { q2: b.w2, q3: b.w3 };
+  if (!cur.a && !m.dead) netEntDie(m); else if (cur.a && m.dead) netEntLive(m);
+  if (!m.dead && !PL.dead && NET.me > m.netId && simTime - (NET.unstackT ?? -1e9) > 3000) { const o = ps.origin.map(v => v / 8); if (Math.hypot(o[0] - m.o[0], o[1] - m.o[1]) < 34 && Math.abs(o[2] - m.o[2]) < 56) { NET.unstackT = simTime; respawn(pickSpawnIdx()); } } // two players on one spawn: the later one moves
+  if (!m.dead) updateBox(m);
+  if (b.lg && !m.dead && simTime - (m.lgT || 0) > 50) { m.lgT = simTime; m.shotT = simTime; } // its lightning gun is running
+}
+function netEntDie(m) {
+  m.dead = true; m.takedamage = false; m.box.active = false; m.quad = m.inv = 0;
+  if (!m.hidden) { if (S.ragdoll) botRagdoll(m); playPathAt(botVoice(m, `death${1 + (Math.random() * 4 | 0)}.wav`), m.o, 1, 1, 'land'); }
+  m.hidden = true;
+}
+function netEntLive(m) { m.dead = false; m.hidden = false; m.takedamage = true; m.box.active = true; m.rag = null; m.ro = m.o.slice(); m.ryaw = m.yaw; updateBox(m); addLight(m.o, 200, [.5, .7, 1], .5); }
+function netHitOut(m, dmg) { if (NETGHOST || m.dead) return; const h = NET.hits.get(m.netId) || { d: 0, f: (lastHitFrom || playerCenter()).slice() }; h.d += dmg; NET.hits.set(m.netId, h); }
+function netHitIn(from, m) {
+  const d = Math.max(0, Math.min(600, NC.num(m.d))); if (!d || PL.dead) return;
+  const f = vec3ok(m.f) ? m.f : null; NET.lastAtk = { id: from, t: simTime }; lastHitFrom = f;
+  if (f) knockPlayer(f, d, 500); damagePlayer(d, f || playerCenter());
+}
+function netDied() { const a = NET.lastAtk, by = a && simTime - a.t < 5000 ? a.id : null; NET.lastAtk = null; netOut({ k: 'died', by }); }
+function netPickup(e) { if (!e.respawnAt) return; netOut({ k: 'pickup', i: E.items.indexOf(e), r: Math.round(e.respawnAt - simTime) }); }
+// what a shot looked like, captured while the weapon fires and replayed by everyone else (sounds, beams, impacts, projectiles that do no damage)
+function netCapBegin() { if (!NET.on) return null; return (NETCAP = { n: projs.length, s: [], b: [], i: [] }); }
+function netCapEnd(c) {
+  NETCAP = null; if (!c) return;
+  const P = projs.slice(c.n).filter(p => !p.owner && !p.ghost).slice(0, 16).map(p => [p.type, p.q3 ? 1 : 0, ...p.p.map(nr1), ...p.v.map(Math.round), Math.round(Math.min(p.life, 60000)), p.radius | 0, p.hand ? 1 : 0]);
+  const seg = lgBeamSeg(); if (seg && c.b.length < 6) c.b.push([...seg.a.map(nr1), ...seg.b.map(nr1), 'lg']);
+  if (!P.length && !c.s.length && !c.b.length && !c.i.length) return;
+  const F = NET.fx || (NET.fx = { s: [], b: [], i: [], p: [] });
+  for (const k of c.s) if (F.s.length < 4 && !F.s.includes(k)) F.s.push(k);
+  for (const x of c.b) if (F.b.length < 6) F.b.push(x); for (const x of c.i) if (F.i.length < 12) F.i.push(x); for (const x of P) if (F.p.length < 16) F.p.push(x);
+}
+const NET_SND = /^[A-Za-z0-9_]{1,24}$/, NET_PROJ = new Set(['rocket', 'grenade', 'plasma', 'nail', 'bolt', 'bfg', 'bfg3', 'prox']), NET_IMP = new Set(['bullet', 'shotgun', 'blaster', 'rail']);
+function netFire(from, m) {
+  const e = NET.ents.get(from); if (!e || e.dead || e.hidden) return;
+  e.shotT = simTime; const mz = [e.o[0], e.o[1], e.o[2] + 18];
+  addLight(mz, 160, [1, .85, .45], .1);
+  if (Array.isArray(m.s)) for (const k of m.s.slice(0, 4)) if (typeof k === 'string' && NET_SND.test(k)) playAt(k, mz, .9, 1, 'bot', e);
+  if (Array.isArray(m.b)) for (const x of m.b.slice(0, 6)) { if (!Array.isArray(x) || !vec3ok(x.slice(0, 3)) || !vec3ok(x.slice(3, 6))) continue; fxBeam(x.slice(0, 3), x.slice(3, 6), x[6] === 'rail' ? 'rail' : 'laser'); }
+  if (Array.isArray(m.i)) for (const x of m.i.slice(0, 12)) { if (!Array.isArray(x) || !vec3ok(x.slice(0, 3)) || !vec3ok(x.slice(3, 6))) continue; fxImpact({ endpos: x.slice(0, 3), normal: x.slice(3, 6), surf: 0, hit: null, fraction: .5 }, NET_IMP.has(x[6]) ? x[6] : 'bullet'); }
+  if (Array.isArray(m.p)) for (const x of m.p.slice(0, 16)) {
+    if (!Array.isArray(x) || !NET_PROJ.has(x[0]) || !vec3ok(x.slice(2, 5)) || !vec3ok(x.slice(5, 8))) continue;
+    projs.push({ type: x[0], q3: !!x[1], p: x.slice(2, 5), v: x.slice(5, 8), life: Math.max(100, Math.min(60000, NC.num(x[8], 5000))), radius: Math.max(0, Math.min(400, NC.num(x[9], 120))), hand: !!x[10], dmg: 0, rdmg: 0, spin: 0, laser: 0, owner: e, ghost: true });
+  }
+}
+function netTick() {
+  if (!NET.on) return;
+  netEnsure();
+  if (NET.auth && realTime - NET.authT > 500) { NET.authT = realTime; NET.auth.tick(); }
+  if (!world || !BOT.on || BOT.pending) return;
+  if (realTime - NET.stT >= 50) {
+    NET.stT = realTime; const o = ps.origin.map(v => v / 8), v = ps.velocity.map(v => v / 8);
+    netOut({ k: 'st', o: o.map(nr1), v: v.map(Math.round), y: nr1(yaw), p: nr1(pitch), a: PL.dead ? 0 : 1, w2: W.cur, w3: W3.cur, q: PL.quad > simTime ? 1 : 0, i: PL.invul > simTime ? 1 : 0, lg: lgBeamSeg() ? 1 : 0 });
+  }
+  if (NET.fx && realTime - NET.fxT >= 60) { NET.fxT = realTime; netOut({ k: 'fire', ...NET.fx }); NET.fx = null; }
+  for (const [to, h] of NET.hits) netOut({ k: 'hit', to, d: Math.round(h.d), f: h.f.map(nr1) }); NET.hits.clear();
+}
+function netStart(mode, tr, host) {
+  NET.on = true; NET.mode = mode; NET.tr = tr; NET.host = host; NET.roster = []; NET.ents.clear(); NET.pend = null; NET.fx = null; NET.hits.clear(); NET.lastAtk = null; NET.prevWset = null; NET.welcomed = false;
+}
+function netHello() { netOut({ k: 'hello', name: NC.clean(S.netName) || 'Player', set: S.pset, model: S.pset === 'q3' ? S.model3 : S.pset === 'q2' ? S.model : null, skin: S.pset === 'q3' ? S.skin3 : S.pset === 'q2' ? S.skin : null }); }
+function netHostAuth() {
+  const map = $('mpMap').value || 'test';
+  NET.auth = NC.createAuthority({ send: authSend, now: () => Date.now(), map: BUILTIN_MAPS[map] ? map : map, wset: S.wset, rules: { frag: +$('mpFrag').value, time: +$('mpTime').value }, max: 16 });
+}
+function netStop(msg) {
+  const was = NET.on; NET.on = false;
+  try { NET.tr && NET.tr.close(); } catch (e) {}
+  NET.tr = null; NET.auth = null; NET.host = false; NET.me = null; NET.code = '';
+  for (const id of [...NET.ents.keys()]) netDespawn(id); NET.roster = [];
+  if (NET.prevWset !== null) { setWsetTemp(NET.prevWset); NET.prevWset = null; }
+  if (NET.lobby) NET.lobby.presence({ g: null }).catch(() => {});
+  $('netLeave').hidden = true; refreshNetUI();
+  if (msg) { netStatus(msg, true); if (was && running) { toast(msg, 5000); pauseGame(); showScreen('mp'); } }
+  else netStatus('');
+}
+// --- Cloud: the artifact's own realtime room. A game is a named room; everything rides on each player's presence (absolute state plus a short
+// ring of numbered events), so nothing depends on send permissions and late joiners see the current state.
+async function cloudRoom() {
+  if (NET.lobby !== undefined) return NET.lobby;
+  NET.lobby = null; if (!window.claude || typeof window.claude.use !== 'function') return null;
+  try { NET.lobby = await window.claude.use('room'); } catch (e) { NET.lobby = null; }
+  if (NET.lobby) NET.lobby.onPeers(ch => renderCloudGames(ch.peers), () => {});
+  return NET.lobby;
+}
+function renderCloudGames(peers) {
+  const box = $('cloudGames'); if (!box) return; box.textContent = '';
+  const games = peers.filter(p => !p.isMe && p.presence && p.presence.g && typeof p.presence.g.c === 'string' && /^[a-z0-9]{4,8}$/.test(p.presence.g.c));
+  if (!games.length) { const s = document.createElement('div'); s.className = 'hint'; s.textContent = 'No open games right now. Host one, or join with a code.'; box.appendChild(s); return; }
+  for (const p of games.slice(0, 12)) {
+    const g = p.presence.g, row = document.createElement('div'); row.className = 'netgame';
+    const t = document.createElement('span'); t.textContent = `${NC.clean(g.n) || 'Player'}'s game · ${NC.clean(g.m, 40)} · ${NC.num(g.p, 1) | 0} playing · ${g.c}`;
+    const b = document.createElement('button'); b.textContent = 'Join'; b.onclick = () => cloudJoin(g.c, false);
+    row.append(t, b); box.appendChild(row);
+  }
+}
+async function cloudJoin(code, host) {
+  const lobby = await cloudRoom(); if (!lobby) { netStatus('Cloud play needs the hosted game page on claude.ai (signed in, shared with you).', true); return; }
+  code = String(code || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8); if (code.length < 4) { netStatus('Enter the 4–8 character game code.', true); return; }
+  if (NET.on) netStop();
+  netStatus('Joining…');
+  let nr; try { nr = await lobby.join('cq-' + code); } catch (e) { netStatus('Could not join that game (' + (e && e.code || 'error') + ').', true); return; }
+  const tr = { seq: 0, ring: [], st: null, seen: new Map(), lastSt: new Map(), hostPeer: null, nr, meP: null, timer: 0, closed: false };
+  const push = () => { if (tr.closed) return; nr.presence({ h: host ? 1 : 0, st: tr.st, ev: tr.ring }).catch(() => {}); };
+  const add = (t, m, to) => { tr.ring.push([++tr.seq, t, m, to || 0]); while (tr.ring.length > 1 && JSON.stringify(tr.ring).length > 3000) tr.ring.shift(); push(); };
+  tr.bcast = m => { if (m.k === 'st') { tr.st = m; push(); } else add('c', m); };
+  tr.req = m => add('r', m);
+  tr.authOut = (to, m) => add('a', m, to);
+  tr.close = () => { tr.closed = true; try { nr.leave(); } catch (e) {} };
+  netStart('cloud', tr, host); NET.code = code;
+  if (host) netHostAuth();
+  nr.onPeers(ch => {
+    if (tr.closed) return;
+    for (const p of ch.peers) if (p.isMe && p.sameTab) tr.meP = p.peer;
+    if (!NET.me && tr.meP) { NET.me = tr.meP; netHello(); }
+    const hp = ch.peers.find(p => !p.isMe && p.presence && p.presence.h === 1); if (hp) tr.hostPeer = hp.peer;
+    for (const p of ch.peers) {
+      if (p.isMe || !p.presence) continue; const pr = p.presence, id = p.peer, ev = Array.isArray(pr.ev) ? pr.ev : [], first = !tr.seen.has(id);
+      let last = tr.seen.get(id) || 0, top = last;
+      for (const x of ev) {
+        if (!Array.isArray(x) || typeof x[0] !== 'number' || x[0] <= last) continue; top = Math.max(top, x[0]);
+        const [, t, m, to] = x; if (!m || typeof m !== 'object') continue;
+        if (t === 'a') { if (id !== tr.hostPeer || (to && to !== NET.me)) continue; if (first && !to) continue; netIn('auth', m); }
+        else if (t === 'r') { if (NET.auth) NET.auth.onMsg(id, m); }
+        else if (t === 'c' && !first) netIn(id, m);
+      }
+      tr.seen.set(id, top);
+      if (pr.st && typeof pr.st === 'object' && pr.st !== tr.lastSt.get(id)) { tr.lastSt.set(id, pr.st); netIn(id, { ...pr.st, k: 'st' }); }
+    }
+    for (const p of ch.left) { if (NET.auth) NET.auth.leave(p.peer); if (p.peer === tr.hostPeer && !host) netStop('The host left the game.'); }
+  }, e => { if (!tr.closed) netStop('Lost the cloud connection (' + (e && e.code || 'error') + ').'); });
+  if (host) {
+    lobby.presence({ g: { c: code, n: NC.clean(S.netName) || 'Player', m: w_name($('mpMap').value || 'test'), p: 1 } }).catch(() => {});
+  } else setTimeout(() => { if (NET.on && NET.tr === tr && !NET.welcomed) netStop('No game answered on that code.'); }, 12000);
+}
+// --- LAN: WebRTC between browsers on the same network. No server: the host makes an invite code, the guest answers with a reply code.
+const LAN_CFG = { iceServers: [] };
+async function packCode(obj) {
+  const txt = JSON.stringify(obj); let bytes = new TextEncoder().encode(txt), z = 0;
+  if (typeof CompressionStream === 'function') { bytes = new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer()); z = 1; }
+  let s = ''; for (const b of bytes) s += String.fromCharCode(b);
+  return 'CQ' + z + '.' + btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+async function unpackCode(code) {
+  const m = /^CQ([01])\.([A-Za-z0-9_-]+)$/.exec(String(code).trim().replace(/\s+/g, '')); if (!m) throw new Error('That is not a Crossover Quake code.');
+  const bin = atob(m[2].replace(/-/g, '+').replace(/_/g, '/')); let bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+  if (m[1] === '1') bytes = new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+  const o = JSON.parse(new TextDecoder().decode(bytes)); if (!o || typeof o.s !== 'string' || o.s.length > 20000) throw new Error('Damaged code.'); return o;
+}
+const iceDone = pc => new Promise(res => { if (pc.iceGatheringState === 'complete') return res(); const t = setTimeout(res, 3000); pc.addEventListener('icegatheringstatechange', () => { if (pc.iceGatheringState === 'complete') { clearTimeout(t); res(); } }); });
+function lanSendJSON(ch, o) { if (ch && ch.readyState === 'open') try { ch.send(JSON.stringify(o)); } catch (e) {} }
+function lanHostTransport() {
+  const tr = { peers: new Map(), n: 0, pending: null };
+  const toGuests = (o, except, unrel) => { for (const [id, g] of tr.peers) if (id !== except) lanSendJSON(unrel ? g.du : g.dc, o); };
+  tr.bcast = m => toGuests({ t: 'c', f: NET.me, m }, null, m.k === 'st');
+  tr.req = () => {}; // the host is the authority
+  tr.authOut = (to, m) => { if (to) { const g = tr.peers.get(to); if (g) lanSendJSON(g.dc, { t: 'a', m }); } else toGuests({ t: 'a', m }); };
+  tr.close = () => { for (const g of tr.peers.values()) try { g.pc.close(); } catch (e) {} tr.peers.clear(); };
+  tr.invite = async () => {
+    const id = 'p' + (++tr.n), pc = new RTCPeerConnection(LAN_CFG), g = { pc, id, dc: pc.createDataChannel('rel', { ordered: true }), du: pc.createDataChannel('st', { ordered: false, maxRetransmits: 0 }) };
+    const onMsg = ev => {
+      let o; try { o = JSON.parse(ev.data); } catch (e) { return; } if (!o || !o.m || typeof o.m !== 'object') return;
+      if (o.t === 'c' && NC.CLIENT_KINDS.has(o.m.k)) { netIn(id, o.m); toGuests({ t: 'c', f: id, m: o.m }, id, o.m.k === 'st'); }
+      else if (o.t === 'r' && NET.auth) NET.auth.onMsg(id, o.m);
+    };
+    g.dc.onmessage = onMsg; g.du.onmessage = onMsg;
+    g.dc.onopen = () => { tr.peers.set(id, g); lanSendJSON(g.dc, { t: 'id', id }); netStatus(`A player connected (${tr.peers.size} guest${tr.peers.size === 1 ? '' : 's'}).`); };
+    pc.onconnectionstatechange = () => { if (['failed', 'closed', 'disconnected'].includes(pc.connectionState) && tr.peers.get(id) === g) { tr.peers.delete(id); if (NET.auth) NET.auth.leave(id); } };
+    await pc.setLocalDescription(await pc.createOffer()); await iceDone(pc);
+    tr.pending = g; return packCode({ t: 'o', s: pc.localDescription.sdp });
+  };
+  tr.accept = async code => { const o = await unpackCode(code); if (o.t !== 'a') throw new Error('Paste the guest\'s reply code here.'); const g = tr.pending; if (!g) throw new Error('Make an invite first.'); tr.pending = null; await g.pc.setRemoteDescription({ type: 'answer', sdp: o.s }); };
+  return tr;
+}
+async function lanJoin(code) {
+  const o = await unpackCode(code); if (o.t !== 'o') throw new Error('Paste the host\'s invite code here.');
+  if (NET.on) netStop();
+  const pc = new RTCPeerConnection(LAN_CFG), tr = { pc, dc: null, du: null };
+  tr.bcast = m => lanSendJSON(m.k === 'st' ? tr.du : tr.dc, { t: 'c', m });
+  tr.req = m => lanSendJSON(tr.dc, { t: 'r', m });
+  tr.authOut = () => {}; tr.close = () => { try { pc.close(); } catch (e) {} };
+  pc.ondatachannel = ev => {
+    const ch = ev.channel; if (ch.label === 'rel') tr.dc = ch; else tr.du = ch;
+    ch.onmessage = e2 => {
+      let x; try { x = JSON.parse(e2.data); } catch (e) { return; }
+      if (x.t === 'id' && typeof x.id === 'string') { NET.me = x.id; netHello(); }
+      else if (x.t === 'a' && x.m) netIn('auth', x.m);
+      else if (x.t === 'c' && x.m && typeof x.f === 'string' && NC.CLIENT_KINDS.has(x.m.k)) netIn(x.f, x.m);
+    };
+  };
+  pc.onconnectionstatechange = () => { if (['failed', 'closed'].includes(pc.connectionState) && NET.tr === tr) netStop('Lost the connection to the host.'); };
+  netStart('lan', tr, false);
+  await pc.setRemoteDescription({ type: 'offer', sdp: o.s }); await pc.setLocalDescription(await pc.createAnswer()); await iceDone(pc);
+  return packCode({ t: 'a', s: pc.localDescription.sdp });
+}
+// --- Dedicated: a WebSocket to server.js, which relays and keeps the match
+function dedConnect(url) {
+  url = String(url || '').trim(); if (!/^wss?:\/\/[^\s]+$/.test(url)) { netStatus('Enter a server address like ws://192.168.1.20:27960', true); return; }
+  if (NET.on) netStop();
+  let ws; try { ws = new WebSocket(url); } catch (e) { netStatus('Could not open ' + url + ': ' + e.message, true); return; }
+  const tr = { ws };
+  const send = o => { if (ws.readyState === 1) try { ws.send(JSON.stringify(o)); } catch (e) {} };
+  tr.bcast = m => send({ t: 'c', m }); tr.req = m => send({ t: 'r', m }); tr.authOut = () => {}; tr.close = () => { try { ws.close(); } catch (e) {} };
+  netStart('ded', tr, false); netStatus('Connecting to ' + url + '…');
+  ws.onmessage = ev => {
+    let x; try { x = JSON.parse(ev.data); } catch (e) { return; }
+    if (x.t === 'id' && typeof x.id === 'string') { NET.me = x.id; netHello(); }
+    else if (x.t === 'a' && x.m) netIn('auth', x.m);
+    else if (x.t === 'c' && x.m && typeof x.f === 'string' && NC.CLIENT_KINDS.has(x.m.k)) netIn(x.f, x.m);
+  };
+  ws.onerror = () => {};
+  ws.onclose = () => { if (NET.tr === tr) netStop(NET.welcomed ? 'The server closed the connection.' : 'Could not reach the server at ' + url + '.'); };
+}
+// --- menu
+function refreshNetUI() {
+  const m = S.netMode || 'off', on = m !== 'off';
+  for (const [id, k] of [['netCloud', 'cloud'], ['netLan', 'lan'], ['netDed', 'ded']]) $(id).hidden = m !== k;
+  $('netNameRow').hidden = !on;
+  for (const id of ['botCountRow', 'botSlots', 'botSkillRow', 'modeRow']) { const e = $(id); if (e) e.hidden = on; }
+  $('botBtn').hidden = m === 'ded'; $('botBtn').textContent = on ? '⚔ Host online game' : '⚔ Start match';
+  $('lanHostBox').hidden = !(m === 'lan' && NET.on && NET.host);
+  if (m === 'cloud') cloudRoom().then(r => { if (!r) netStatus('Cloud play works on the hosted game page on claude.ai, for people it is shared with.', true); else renderCloudGames(r.peers()); });
+  if (m === 'ded' && !$('dedUrl').value) $('dedUrl').value = /^https?:$/.test(location.protocol) && location.port ? (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host : 'ws://localhost:' + NC.PORT;
+}
+async function netHostOnline() {
+  const m = S.netMode; if (NET.on) netStop();
+  if (m === 'cloud') { const code = Math.random().toString(36).slice(2, 7).replace(/[^a-z0-9]/g, 'x').padEnd(5, '7'); await cloudJoin(code, true); return; }
+  if (m === 'lan') {
+    if (typeof RTCPeerConnection !== 'function') { netStatus('This browser has no WebRTC, so LAN play is not available.', true); return; }
+    const tr = lanHostTransport(); netStart('lan', tr, true); NET.me = 'h'; netHostAuth(); netHello(); refreshNetUI();
+    netStatus('Hosting on your network. Make an invite for each player.');
+  }
+}
 // title-screen pages: main → play → singleplayer / multiplayer, plus options and the notes
 const SCR_PARENT = { main: null, play: 'main', sp: 'play', mp: 'play', options: 'main', sim: 'main' }, SCR_NAME = { main: 'MAIN MENU', play: 'PLAY', sp: 'PLAY / SINGLEPLAYER', mp: 'PLAY / MULTIPLAYER', options: 'OPTIONS', sim: "WHAT'S SIMULATED" };
 let curScr = 'main';
