@@ -25,4 +25,13 @@ Play → Multiplayer → **Online**:
   It needs Node 16+ and no packages. It serves the game too: open the address it prints (`http://<server>:27960`) on every machine, choose *Dedicated* and *Connect*. `--map` is a built-in map (`test`, `kappa`, …) or a path such as `maps/q2dm1.bsp` that each player has loaded from their own pak. `/status` shows the players.
 - **Off** — matches against bots on your own device, as before.
 
-Online games are deathmatch. Everyone runs their own movement and shooting; the shooter decides hits and the player hit takes the damage. `netcore.js` keeps the match (frags, item pickups, frag and time limits, the next round) in the host's browser or the server.
+Online games are deathmatch or co-op (pick *Gamemode* before hosting; for a dedicated server add `--game coop --skill 1`). In co-op one player — the host, or the first player on a dedicated server — runs the monsters; everyone else sees them move, fight and die, and their hits go to that player. Triggers, buttons, doors, shootable things, item pickups and level changes are shared, and if the player running the monsters leaves, the next one takes over. Everyone runs their own movement and shooting; the shooter decides hits and the player hit takes the damage. `netcore.js` keeps the match (frags, item pickups, frag and time limits, the next round) in the host's browser or the server.
+
+## Quake II campaign and mission packs
+
+Load `baseq2/pak0.pak` and, for the mission packs, `xatrix/pak0.pak` (*The Reckoning*) and/or `rogue/pak0.pak` (*Ground Zero*). The Maps screen then offers **Start campaign**, **The Reckoning** and **Ground Zero**.
+
+- Campaign entities: `trigger_hurt`, `target_laser`, `target_crosslevel_trigger` / `target_crosslevel_target` (flags kept between the maps of a unit, cleared at a new unit), `trigger_gravity`, `target_earthquake`, `target_spawner`, `target_blaster`, `target_splash`, `target_temp_entity`, `target_killplayers`, decorative `misc_*` models; brush entities with no special rules stay solid.
+- The Reckoning: gekk, fixbot, heat-seeking chick, Phalanx gladiator, hyperblaster / laser / ripper soldiers, boss5; `func_door_secret2`, `target_mal_laser`, `func_object_repair`.
+- Ground Zero: stalker, turret, carrier, Black Widow (both forms), Daedalus, medic commander, kamikaze flyer; `func_plat2`, `func_force_wall`.
+- Mission-pack weapons are picked up as the nearest Quake II gun (Ion Ripper → HyperBlaster, Phalanx → Rocket Launcher, ETF Rifle → Chaingun, Prox Launcher → Grenade Launcher, Plasma Beam → HyperBlaster, Disruptor → Railgun, Chainfist → Shotgun) and their ammo fills that gun's. DualFire and Double Damage act as Quad Damage; spheres, goggles and the doppleganger are collected but do nothing special.

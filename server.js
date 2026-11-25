@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Crossover Quake dedicated server. No dependencies: Node 16 or newer.
 //
-//   node server.js [--port 27960] [--map test] [--frag 20] [--time 10] [--mode q2] [--max 16]
+//   node server.js [--port 27960] [--map test] [--game dm|coop] [--skill 1] [--frag 20] [--time 10] [--mode q2] [--max 16]
 //
 // It hosts one deathmatch that players join from the game's Multiplayer menu (Online: Dedicated), and it serves the game itself, so the
 // easiest way in is to open the address it prints (http://<this machine>:27960) in a browser. The server keeps the match — players,
@@ -12,9 +12,9 @@ const http = require('http'), fs = require('fs'), path = require('path'), crypto
 const NetCore = require('./netcore.js');
 
 const args = {}; for (let i = 2; i < process.argv.length; i++) { const a = process.argv[i]; if (a.startsWith('--')) { const k = a.slice(2), v = process.argv[i + 1] && !process.argv[i + 1].startsWith('--') ? process.argv[++i] : 'true'; args[k] = v; } }
-if (args.help) { console.log('node server.js [--port 27960] [--map test] [--frag 20] [--time 10] [--mode builtin|q2|q3] [--max 16]'); process.exit(0); }
+if (args.help) { console.log('node server.js [--port 27960] [--map test] [--game dm|coop] [--skill 0-2] [--frag 20] [--time 10] [--mode builtin|q2|q3] [--max 16]'); process.exit(0); }
 const PORT = +args.port || NetCore.PORT, MAP = String(args.map || 'test'), MODE = ['builtin', 'q2', 'q3'].includes(args.mode) ? args.mode : 'q2';
-const RULES = { frag: args.frag === undefined ? 20 : +args.frag | 0, time: args.time === undefined ? 10 : +args.time | 0 }, MAX = Math.max(2, Math.min(32, +args.max || 16));
+const GAME = args.game === 'coop' ? 'coop' : 'dm', RULES = { frag: args.frag === undefined ? 20 : +args.frag | 0, time: args.time === undefined ? 10 : +args.time | 0, mode: GAME, skill: args.skill === undefined ? 1 : +args.skill | 0 }, MAX = Math.max(2, Math.min(32, +args.max || 16));
 const PAGE = path.join(__dirname, 'index.html');
 
 const clients = new Map(); let nextId = 1;
@@ -33,7 +33,7 @@ const server = http.createServer((req, res) => {
     });
     return;
   }
-  if (url === '/status') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ map: MAP, mode: MODE, rules: RULES, players: auth.roster().map(p => ({ name: p.name, frags: p.frags })) })); return; }
+  if (url === '/status') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ game: GAME, map: auth.map, mode: MODE, rules: RULES, players: auth.roster().map(p => ({ name: p.name, frags: p.frags })) })); return; }
   res.writeHead(404, { 'content-type': 'text/plain' }); res.end('not found');
 });
 
@@ -81,7 +81,7 @@ function onMessage(c, text) {
   if (x.t === 'r') { auth.onMsg(c.id, x.m); return; }
   if (x.t === 'c' && NetCore.CLIENT_KINDS.has(x.m.k)) {
     const s = JSON.stringify({ t: 'c', f: c.id, m: x.m });
-    if (x.m.k === 'hit') { const to = clients.get(x.m.to); if (to) sendText(to, s); return; }
+    if (x.m.k === 'hit' || x.m.k === 'mhit') { const to = clients.get(x.m.to); if (to) sendText(to, s); return; }
     for (const o of clients.values()) if (o !== c) sendText(o, s);
   }
 }
@@ -93,7 +93,7 @@ function sendFrame(c, op, data) {
 
 server.listen(PORT, () => {
   const ips = Object.values(os.networkInterfaces()).flat().filter(i => i && i.family === 'IPv4' && !i.internal).map(i => i.address);
-  console.log(`Crossover Quake dedicated server — map ${MAP}, ${MODE} rules, frag limit ${RULES.frag || 'none'}, time limit ${RULES.time ? RULES.time + ' min' : 'none'}, up to ${MAX} players`);
+  console.log(GAME === 'coop' ? `Crossover Quake dedicated server — co-op on ${MAP}, ${MODE} rules, skill ${RULES.skill}, up to ${MAX} players (the first player in runs the monsters)` : `Crossover Quake dedicated server — deathmatch on ${MAP}, ${MODE} rules, frag limit ${RULES.frag || 'none'}, time limit ${RULES.time ? RULES.time + ' min' : 'none'}, up to ${MAX} players`);
   for (const ip of ips.length ? ips : ['localhost']) console.log(`  play:   http://${ip}:${PORT}    (Multiplayer → Online: Dedicated → Connect)`);
   console.log(`  status: http://localhost:${PORT}/status`);
 });

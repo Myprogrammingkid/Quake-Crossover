@@ -287,6 +287,8 @@ body.touch #info{left:112px}
       <div class="sec">
         <div class="row">
           <button id="campaign" class="primary" hidden>▶ Start campaign</button>
+          <button id="campaignX" class="primary" hidden>▶ The Reckoning</button>
+          <button id="campaignR" class="primary" hidden>▶ Ground Zero</button>
           <button id="playKappa" class="primary">▶ Built-in campaign: Outpost Kappa</button>
           <button id="playDemo" class="">▶ Play test map</button>
         </div>
@@ -1455,18 +1457,19 @@ G.Q2 = {
   const num = (x, d = 0) => (typeof x === 'number' && isFinite(x) ? x : d);
   const SETS = new Set(['builtin', 'q2', 'q3']);
   // what may travel between players: anything else is dropped before it reaches the game
-  const CLIENT_KINDS = new Set(['st', 'fire', 'hit', 'chat']); // player → everyone
-  const REQ_KINDS = new Set(['hello', 'pickup', 'died']); // player → authority
-  const AUTH_KINDS = new Set(['welcome', 'roster', 'item', 'frag', 'over', 'restart', 'bye', 'full']); // authority → players
+  const CLIENT_KINDS = new Set(['st', 'fire', 'hit', 'chat', 'mst', 'mfire', 'mhit', 'mdie', 'mgib', 'mspawn', 'act', 'edie']); // player → everyone (the m* ones come from the player running the monsters in co-op)
+  const REQ_KINDS = new Set(['hello', 'pickup', 'died', 'map']); // player → authority
+  const AUTH_KINDS = new Set(['welcome', 'roster', 'item', 'frag', 'over', 'restart', 'bye', 'full', 'master']); // authority → players
 
   function createAuthority(o) { // o: { send(to|null, msg), now(), map, wset, rules: { frag, time }, max }
-    const A = { players: new Map(), items: new Map(), map: o.map, wset: o.wset, rules: { frag: num(o.rules && o.rules.frag) | 0, time: num(o.rules && o.rules.time) | 0 }, start: o.now(), over: false, overT: 0, hue: 0, max: o.max || 16 };
+    const A = { players: new Map(), items: new Map(), map: o.map, wset: o.wset, rules: { frag: num(o.rules && o.rules.frag) | 0, time: num(o.rules && o.rules.time) | 0, mode: o.rules && o.rules.mode === 'coop' ? 'coop' : 'dm', skill: Math.max(0, Math.min(2, num(o.rules && o.rules.skill, 1) | 0)) }, start: o.now(), over: false, overT: 0, hue: 0, max: o.max || 16, master: null };
+    const coop = () => A.rules.mode === 'coop';
     const roster = () => [...A.players].map(([id, p]) => ({ id, name: p.name, frags: p.frags, deaths: p.deaths, set: p.set, model: p.model, skin: p.skin, hue: p.hue }));
     const bc = m => o.send(null, m);
     const sendRoster = () => bc({ k: 'roster', list: roster() });
     function end(text) { A.over = true; A.overT = o.now(); bc({ k: 'over', text }); }
     function check() {
-      if (A.over || !A.players.size) return;
+      if (A.over || !A.players.size || coop()) return;
       const r = roster().sort((a, b) => b.frags - a.frags), best = r[0], now = o.now();
       if (A.rules.frag && best.frags >= A.rules.frag) end(`Frag limit — ${best.name} wins with ${best.frags} frags.`);
       else if (A.rules.time && now - A.start >= A.rules.time * 60000) end(r.length > 1 && r[1].frags === best.frags ? `Time limit — tied at ${best.frags} frags.` : `Time limit — ${best.name} wins with ${best.frags} frags.`);
@@ -1477,24 +1480,27 @@ G.Q2 = {
       if (m.k === 'hello') {
         let p = A.players.get(from);
         if (!p) { if (A.players.size >= A.max) { o.send(from, { k: 'full' }); return; } p = { frags: 0, deaths: 0, hue: A.hue++ }; A.players.set(from, p); }
+        if (!A.master || !A.players.has(A.master)) A.master = from; // co-op: the first player in runs the monsters
         p.name = clean(m.name) || 'Player'; p.set = SETS.has(m.set) ? m.set : 'builtin'; p.model = clean(m.model, 32) || null; p.skin = clean(m.skin, 32) || null;
-        const items = []; for (const [i, until] of A.items) if (until > now) items.push([i, until - now]);
-        o.send(from, { k: 'welcome', you: from, map: A.map, wset: A.wset, rules: A.rules, elapsed: now - A.start, items, over: A.over });
+        const items = []; for (const [i, until] of A.items) if (until > now) items.push([i, Math.min(1e9, until - now)]);
+        o.send(from, { k: 'welcome', you: from, map: A.map, spot: A.spot || '', wset: A.wset, rules: A.rules, elapsed: now - A.start, items, over: A.over, master: A.master, list: roster() });
         sendRoster(); return;
       }
       const p = A.players.get(from); if (!p) return;
       if (m.k === 'pickup') {
         const i = num(m.i, -1) | 0, r = Math.max(1000, Math.min(180000, num(m.r, 25000) | 0)); if (i < 0 || i > 100000) return;
-        if ((A.items.get(i) || 0) > now) return; A.items.set(i, now + r); bc({ k: 'item', i, r, by: from }); return;
+        if ((A.items.get(i) || 0) > now) return; A.items.set(i, now + (coop() ? 1e12 : r)); bc({ k: 'item', i, r, by: from }); return;
       }
       if (m.k === 'died') {
+        if (coop()) { p.deaths++; bc({ k: 'frag', v: from, by: null }); sendRoster(); return; }
         if (A.over) return; p.deaths++;
         const kid = typeof m.by === 'string' && m.by !== from && A.players.has(m.by) ? m.by : null;
         if (kid) A.players.get(kid).frags++; else p.frags--;
         bc({ k: 'frag', v: from, by: kid }); sendRoster(); check();
       }
+      if (m.k === 'map' && from === A.master && typeof m.map === 'string' && /^[A-Za-z0-9_./-]{1,80}$/.test(m.map)) { A.map = m.map; A.spot = clean(m.spot, 40); A.items.clear(); }
     };
-    A.leave = id => { if (A.players.delete(id)) { bc({ k: 'bye', id }); sendRoster(); } };
+    A.leave = id => { if (!A.players.delete(id)) return; bc({ k: 'bye', id }); if (A.master === id) { A.master = A.players.keys().next().value || null; bc({ k: 'master', id: A.master }); } sendRoster(); };
     A.tick = () => {
       const now = o.now();
       if (!A.over) { check(); return; }
@@ -2551,7 +2557,7 @@ function voice(n, q3model, q2model) {
 }
 const sexed = n => voice(n, (S.pset === 'q3' || S.wset === 'q3') ? S.model3 || 'sarge' : null, S.model);
 const botVoice = (m, n) => (m.set || S.pset) === 'q3' ? voice(n, m.model || 'sarge') : voice(n, null, m.model);
-const SND = {
+const SND = { quake: 'world/quake.wav', lasfly: 'misc/lasfly.wav',
   jump: () => sexed('jump1.wav'), fall1: () => sexed('fall1.wav'), fall2: () => sexed('fall2.wav'), land: 'player/land1.wav',
   step1: 'player/step1.wav', step2: 'player/step2.wav', step3: 'player/step3.wav', step4: 'player/step4.wav',
   watrIn: 'player/watr_in.wav', watrOut: 'player/watr_out.wav', watrUn: 'player/watr_un.wav', gib: 'misc/udeath.wav', protect: 'items/protect4.wav', quadFire: 'items/damage3.wav', respawn: 'misc/tele1.wav',
@@ -2722,7 +2728,7 @@ function movedir(kv) {
   const f = [0, 0, 0]; Q.angleVectors(a, f); return f.map(v => Math.abs(v) < 1e-6 ? 0 : v);
 }
 function initEntities(w) {
-  E = { list: [], byName: new Map(), movers: [], damageables: [], barrels: [], monsters: [], items: [], keys: new Set(), triggers: [...(w.staticTriggers || [])], timers: [] };
+  E = { list: [], byName: new Map(), movers: [], damageables: [], barrels: [], monsters: [], items: [], keys: new Set(), triggers: [...(w.staticTriggers || [])], timers: [], lasers: [], decor: [], quake: null };
   PL.kills = PL.total = 0;
   const cm = w.cm, solids = cm.solids = []; cm.boxes = [];
   w.mstate = {};
@@ -2837,9 +2843,46 @@ function initEntities(w) {
       }
       case 'trigger_teleport': { const box = trigBox(e); if (box && kv.target) E.triggers.push({ type: 'tele', ...box, target: kv.target, q3: !!w.q3 }); break; }
       case 'target_speaker': setupSpeaker(e); break;
-      default: if (MON[e.cls]) setupMonster(e, cm); else if ((w.q3 ? ITEMS_Q3 : ITEMS)[e.cls]) setupItem(e, cm);
+      case 'func_plat2': e.cls = 'func_plat'; { const st = bmodel(e, true); if (!st) break;
+        e.speed = +kv.speed || 200; const lip = +kv.lip || 8, height = +kv.height || 0;
+        e.pos1 = [0, 0, 0]; e.pos2 = [0, 0, -(height || (e.maxs[2] - e.mins[2]) - lip)];
+        if (e.targetname) e.state = 'top'; else { st.o = e.pos2.slice(); e.state = 'bottom'; }
+        e.use = () => { if (e.moveTo || e.think) return; if (e.state === 'bottom') platGoUp(e); else platGoDown(e); };
+        e.blocked = () => { if (e.state === 'up') platGoDown(e); else if (e.state === 'down') platGoUp(e); };
+        const tmin = [e.mins[0] + 25, e.mins[1] + 25, 0], tmax = [e.maxs[0] - 25, e.maxs[1] - 25, e.maxs[2] + 8]; tmin[2] = tmax[2] - (e.pos1[2] - e.pos2[2] + lip);
+        for (const i of [0, 1]) if (tmax[i] - tmin[i] <= 0) { tmin[i] = (e.mins[i] + e.maxs[i]) / 2; tmax[i] = tmin[i] + 1; }
+        if (!e.targetname) E.triggers.push({ type: 'plat', mins: tmin, maxs: tmax, plat: e });
+        E.movers.push(e); break; }
+      case 'func_door_secret2': bmodel(e, false); break;
+      case 'func_force_wall': { // Ground Zero: an invisible wall that blocks while it is on
+        const st = bmodel(e, true); if (!st) break; st.visible = false; st.active = !!(sf & 1);
+        e.use = () => { st.active = !st.active; }; break; }
+      case 'trigger_hurt': { // a pain zone: dmg every frame (every second when SLOW), toggled when TOGGLE
+        const box = trigBox(e); if (!box) break;
+        const t = { type: 'hurt', ...box, dmg: +kv.dmg || 5, every: sf & 16 ? 1000 : 100, off: !!(sf & 1), e, monsters: true };
+        if (sf & 3) e.use = () => { t.off = !t.off; }; E.triggers.push(t); break; }
+      case 'trigger_gravity': { const box = trigBox(e); if (box) E.triggers.push({ type: 'grav', ...box, g: +kv.gravity || 1 }); break; }
+      case 'trigger_monsterjump': break;
+      case 'target_laser': case 'target_mal_laser': { // a beam that hurts whatever stands in it
+        const col = sf & 2 ? [1, .15, .1] : sf & 4 ? [.2, 1, .2] : sf & 8 ? [.25, .4, 1] : sf & 16 ? [1, .95, .2] : sf & 32 ? [1, .55, .1] : [1, .15, .1];
+        Object.assign(e, { on: !!(sf & 1), dmg: kv.dmg !== undefined ? +kv.dmg : (e.cls === 'target_mal_laser' ? 5 : 1), col, fat: !!(sf & 64), dir: movedir(kv), end: null, pulse: e.cls === 'target_mal_laser' ? Math.max(.1, +kv.wait || .1) : 0 });
+        e.use = () => { e.on = !e.on; }; E.lasers.push(e); break; }
+      case 'target_crosslevel_trigger': e.use = act => { XL.flags |= sf & 255; useTargets(e, act); }; break;
+      case 'target_crosslevel_target': { const need = sf & 255, d = (+kv.delay || 1) * 1000; e.delay = 0; later(d, () => { if (need && (XL.flags & need) === need) useTargets(e, 'player'); }); break; }
+      case 'target_earthquake': e.use = () => { E.quake = { until: simTime + (+kv.count || 5) * 1000, mag: (+kv.speed || 200) / 40, o: e.origin }; playAt('quake', e.origin, 1, 0); }; break;
+      case 'target_spawner': e.use = () => netSpawnable() && spawnMonsterAt(kv.target, e.origin, kv.angle !== undefined ? +kv.angle : 0, +kv.speed || 0, movedir(kv)); break;
+      case 'target_blaster': e.use = () => { const d = movedir(kv), sp = +kv.speed || 1000; projs.push({ type: 'bolt', p: e.origin.slice(), v: d.map(x => x * sp), dmg: +kv.dmg || 15, life: 10000, owner: e }); playAt('lasfly', e.origin, .8); }; break;
+      case 'target_splash': case 'target_temp_entity': e.use = () => { const n = movedir(kv), st = +kv.style || 0; if (e.cls === 'target_temp_entity' && [5, 6, 7, 17, 18, 22].includes(st)) { fxExplosion(e.origin, [0, 0, 1], 'rocket'); playAt('boom', e.origin); } else fxImpact({ endpos: e.origin, normal: n, surf: 0, hit: null }, 'blaster'); }; break;
+      case 'target_killplayers': e.use = () => { if (!PL.dead) damagePlayer(9999, null); }; break;
+      case 'target_lightramp': case 'target_string': case 'target_character': case 'target_steam': case 'target_anger': case 'target_blacklight': case 'target_orb': case 'trigger_disguise': case 'func_clock': e.use = act => useTargets(e, act); break;
+      case 'func_object_repair': bmodel(e, true); break;
+      default:
+        if (MON[e.cls]) setupMonster(e, cm); else if ((w.q3 ? ITEMS_Q3 : ITEMS)[e.cls]) setupItem(e, cm);
+        else if (DECOR[e.cls]) { const D = DECOR[e.cls], fr = typeof D.f === 'function' ? D.f(sf) : D.f || 0; E.decor.push({ e, o: e.origin, yaw: kv.angle !== undefined ? +kv.angle : kv.angles ? Q.vecOf(kv.angles)[1] : 0, path: 'models/' + D.m + '/tris.md2', fr, n: D.n || 0, fps: D.fps || 10 }); }
+        else if (/^(func|misc)_/.test(e.cls) && kv.model && kv.model[0] === '*') bmodel(e, true); // a brush entity this engine has no rules for: keep it there, solid
     }
   }
+  for (const L of E.lasers) if (L.kv.target) { const t = (E.byName.get(L.kv.target) || [])[0]; if (t && t.origin) L.dir = nrm(sub3(t.origin, L.origin)); }
   // door teams, auto-open fields, locked-door messages
   const teams = new Map();
   doors.forEach((d, i) => { const k = d.kv.team || '#' + i; if (!teams.has(k)) teams.set(k, []); teams.get(k).push(d); });
@@ -2940,7 +2983,7 @@ function trainUse(e) {
   if (e.running) { if (!(e.spawnflags & 2)) return; e.running = false; e.paused = e.moveTo; e.moveTo = null; e.think = null; return; }
   if (e.paused) { e.moveTo = e.paused; e.paused = null; e.running = true; } else trainNext(e);
 }
-function damageEnt(e, dmg, src) { if (NETGHOST) return; if (src !== 'monster' && PL.quad > simTime) dmg *= 4; if (e.isMonster) { damageMonster(e, dmg, src); return; } if (!e.takedamage || e.dead) return; e.health -= dmg; if (e.health <= 0) { e.takedamage = false; e.die && e.die(); } }
+function damageEnt(e, dmg, src) { if (NETGHOST) return; if (NET.on && NET.coop && !e.isMonster && e.takedamage && e.health - (src !== 'monster' && PL.quad > simTime ? dmg * 4 : dmg) <= 0 && e.die && !e.netDie) { const i = E.list.indexOf(e); if (i >= 0) netOut({ k: 'edie', i }); } if (src !== 'monster' && PL.quad > simTime) dmg *= 4; if (e.isMonster) { damageMonster(e, dmg, src); return; } if (!e.takedamage || e.dead) return; e.health -= dmg; if (e.health <= 0) { e.takedamage = false; e.die && e.die(); } }
 // move a brush entity, pushing (or being blocked by) the player
 function carryRiders(e, old) { // bots and monsters standing on a mover go where it goes
   const st = e.st, d = [st.o[0] - old[0], st.o[1] - old[1], st.o[2] - old[2]]; if (!d[0] && !d[1] && !d[2]) return;
@@ -2971,6 +3014,7 @@ function pushMove0(e, n) {
 }
 function runEntities(msec) {
   const dt = msec / 1000;
+  runCampaignFx(msec);
   for (let i = 0; i < E.timers.length; i++) { const t = E.timers[i]; if (t.t <= simTime) { E.timers.splice(i--, 1); t.fn(); } }
   for (const e of E.movers) {
     if (e.dead) continue;
@@ -2986,11 +3030,13 @@ function runEntities(msec) {
 let changing = false;
 async function changeLevel(str) {
   if (changing) return;
+  if (/^\*/.test(String(str || ''))) XL.flags = 0; // a new unit
   const parts = String(str || '').replace(/^\*/, '').split('+').filter(p => p && !/\.(cin|pcx|dm2)$/i.test(p));
   if (!parts.length) { toast('Unit complete — that is the end of this campaign path.', 5000); return; }
   const [name, spot] = parts[parts.length - 1].split('$'), path = 'maps/' + name.toLowerCase() + '.bsp';
   if (!VFS.has(path)) { toast(`Next map "${name}" isn't in the loaded paks`, 4000); return; }
   changing = true; toast('Loading ' + name + '…', 8000); BOT.carryNext = true;
+  if (NET.on && NET.coop && NET.master) netOut({ k: 'map', map: path, spot: spot || '' });
   try { await loadMap(path, spot || '', true); } finally { BOT.carryNext = false; }
   changing = false;
 }
@@ -3008,8 +3054,8 @@ function shiftClocks(d) {
 function setWorld(w, spot) {
   if (world && !world.builtin) freeWorld(world);
   // moving on in co-op: the squad comes along with the health, armour, weapon and powerups they had
-  const carry = BOT.carryNext && BOT.on && BOT.mode === 'coop' && BOT.bots.length && !BOT.pending && !SAVE.pending ? BOT.bots.map(b => ({ id: { name: b.name, set: b.set, model: b.model, skin: b.skin }, hp: b.dead ? 100 : Math.max(1, b.health), max: b.maxHealth || 100, armor: b.dead ? 0 : b.armorB || 0, wpn: b.wpn || 0, hue: b.hue, frags: b.frags || 0, deaths: b.deaths || 0, quad: Math.max(0, (b.quad || 0) - simTime), inv: Math.max(0, (b.inv || 0) - simTime) })) : null;
-  BOT.carryNext = false; BOT.on = false; BOT.bots = [];
+  const carryB = BOT.bots.filter(b => !b.net), carry = BOT.carryNext && BOT.on && BOT.mode === 'coop' && carryB.length && !BOT.pending && !SAVE.pending ? carryB.map(b => ({ id: { name: b.name, set: b.set, model: b.model, skin: b.skin }, hp: b.dead ? 100 : Math.max(1, b.health), max: b.maxHealth || 100, armor: b.dead ? 0 : b.armorB || 0, wpn: b.wpn || 0, hue: b.hue, frags: b.frags || 0, deaths: b.deaths || 0, quad: Math.max(0, (b.quad || 0) - simTime), inv: Math.max(0, (b.inv || 0) - simTime) })) : null;
+  BOT.carryNext = false; BOT.on = false; BOT.bots = []; const netCoop = NET.on && NET.coop;
   world = w; Q.setCM(w.cm); clearFx(); shiftClocks(simTime); simTime = 0; stopSpeakers();
   initEntities(w);
   preloadWorldSounds();
@@ -3020,6 +3066,7 @@ function setWorld(w, spot) {
   spawnIdx = idx; respawn(idx);
   if (BOT.pending) { const n = BOT.pending - 1; BOT.pending = 0; beginBotMatch(n); }
   else if (carry) resumeCoop(carry);
+  else if (netCoop) { BOT.on = true; BOT.mode = 'coop'; BOT.over = false; BOT.startT = simTime; BOT.frags = BOT.deaths = 0; BOT.bots = []; campaignMode = true; }
   SAVE.lastAuto = 0; hideDeathMenu();
   if (SAVE.pending) { const s = SAVE.pending; SAVE.pending = null; applySnap(s); } else if (!isDM()) autosave('Level start');
 }
@@ -3102,6 +3149,7 @@ function teleport(dest, tyaw) {
   prevOrigin = ps.origin.slice(); play('tele', 0.8);
 }
 function touchTriggers() {
+  ps.gravity = 800;
   if (ps.noclip) return;
   const o = ps.origin.map(v => v / 8), amin = [0, 1, 2].map(i => o[i] + pm.mins[i] - 1), amax = [0, 1, 2].map(i => o[i] + pm.maxs[i] + 1);
   for (const t of E.triggers) {
@@ -3115,13 +3163,14 @@ function touchTriggers() {
         if (t.q3) { const f = [0, 0, 0]; Q.angleVectors([0, dy, 0], f); ps.time = 0; ps.flags &= ~Q.PMF_TIME_TELEPORT; ps.velocity = f.map(v => Math.trunc(v * 400 * 8)); play('telein', .8); }
         return;
       }
-      case 'multi': { const e = t.e; if (e.dead || !e.enabled || e.noPlayer) break; multiFire(e, 'player'); break; }
-      case 'door': if (simTime < t.deb || t.door.dead) break; t.deb = simTime + 1000; doorUse(t.door, 'player'); break;
-      case 'plat': { const p = t.plat; if (p.dead) break; if (p.state === 'bottom') platGoUp(p); else if (p.state === 'top') p.nextT = simTime + 1000; break; }
-      case 'button': buttonFire(t.btn, 'player'); break;
+      case 'multi': { const e = t.e; if (e.dead || !e.enabled || e.noPlayer || e.waitUntil > simTime) break; multiFire(e, 'player'); netAct(t); break; }
+      case 'door': if (simTime < t.deb || t.door.dead) break; t.deb = simTime + 1000; doorUse(t.door, 'player'); netAct(t); break;
+      case 'plat': { const p = t.plat; if (p.dead) break; if (p.state === 'bottom') { platGoUp(p); netAct(t); } else if (p.state === 'top') p.nextT = simTime + 1000; break; }
+      case 'button': if (t.btn.state === 'bottom') netAct(t); buttonFire(t.btn, 'player'); break;
       case 'msg': if (simTime < t.deb) break; t.deb = t.once ? 1e15 : simTime + 5000; toast(t.text, 4500); play('talk', .6); break;
-      case 'hurt': if (PL.dead || simTime < (t.next || 0)) break; t.next = simTime + (t.every || 100); damagePlayer(t.dmg || 5, null); break;
-      case 'exit': levelExit(t); break;
+      case 'grav': ps.gravity = 800 * t.g; break;
+      case 'hurt': if (t.off || PL.dead || simTime < (t.next || 0)) break; t.next = simTime + (t.every || 100); damagePlayer(t.dmg || 5, null); break;
+      case 'exit': netAct(t); levelExit(t); break;
     }
   }
 }
@@ -3517,7 +3566,7 @@ const limitedInv = () => campaignMode && !S.allWeapons;
 const invSet = () => S.wset === 'q3' ? INV.q3 : INV.q2;
 const hasWeapon = i => !limitedInv() || invSet().has(i);
 // pickups name the same classes in both games (weapon_shotgun…), so read them by map type: [Quake II index, Quake III index]
-const GIVE_Q2MAP = { weapon_shotgun: [1, 2], weapon_supershotgun: [2, 5], weapon_machinegun: [3, 1], weapon_chaingun: [4, 11], weapon_grenadelauncher: [5, 3], ammo_grenades: [10, null], weapon_rocketlauncher: [6, 4], weapon_hyperblaster: [7, 7], weapon_railgun: [8, 6], weapon_bfg: [9, 8] };
+const GIVE_Q2MAP = { weapon_boomer: [7, 7], weapon_phalanx: [6, 4], ammo_trap: [10, null], weapon_etf_rifle: [4, 11], weapon_proxlauncher: [5, 3], weapon_plasmabeam: [7, 7], weapon_chainfist: [1, 2], weapon_disintegrator: [8, 6], ammo_tesla: [10, null], weapon_shotgun: [1, 2], weapon_supershotgun: [2, 5], weapon_machinegun: [3, 1], weapon_chaingun: [4, 11], weapon_grenadelauncher: [5, 3], ammo_grenades: [10, null], weapon_rocketlauncher: [6, 4], weapon_hyperblaster: [7, 7], weapon_railgun: [8, 6], weapon_bfg: [9, 8] };
 const GIVE_Q3MAP = { weapon_gauntlet: [0, 0], weapon_machinegun: [3, 1], weapon_shotgun: [2, 2], weapon_grenadelauncher: [5, 3], weapon_rocketlauncher: [6, 4], weapon_lightning: [4, 5], weapon_railgun: [8, 6], weapon_plasmagun: [7, 7], weapon_bfg: [9, 8], weapon_nailgun: [1, 9], weapon_prox_launcher: [10, 10], weapon_chaingun: [4, 11] };
 function forceWeapon(w, i, set) { // put a weapon straight in hand, no switch animation
   w.cur = i; w.next = -1; w.state = 'ready'; w.time = 0;
@@ -3546,7 +3595,7 @@ const Q2_AMMO = [null, ['shells', 1], ['shells', 2], ['bullets', 1], ['bullets',
 const Q3_AMMO = [null, ['bullets', 1], ['shells', 1], ['grenades', 1], ['rockets', 1], ['lightning', 1], ['slugs', 1], ['cells', 1], ['bfgam', 1], ['nails', 1], ['mines', 1], ['belt', 1]];
 const PICK_Q2 = { 1: ['shells', 10], 2: ['shells', 10], 3: ['bullets', 50], 4: ['bullets', 50], 5: ['grenades', 5], 6: ['rockets', 5], 7: ['cells', 50], 8: ['slugs', 10], 9: ['cells', 50] };
 const PICK_Q3 = { 1: ['bullets', 40], 2: ['shells', 10], 3: ['grenades', 10], 4: ['rockets', 10], 5: ['lightning', 100], 6: ['slugs', 10], 7: ['cells', 50], 8: ['bfgam', 20], 9: ['nails', 20], 10: ['mines', 5], 11: ['belt', 80] };
-const AMMO_ITEM = { ammo_bullets: ['bullets', 50, 50], ammo_shells: ['shells', 10, 10], ammo_grenades: ['grenades', 5, 5], ammo_rockets: ['rockets', 5, 5], ammo_cells: ['cells', 50, 30], ammo_slugs: ['slugs', 10, 10], ammo_lightning: ['lightning', 60, 60], ammo_bfg: ['bfgam', 15, 15], ammo_nails: ['nails', 20, 20], ammo_mines: ['mines', 10, 10], ammo_belt: ['belt', 100, 100] };
+const AMMO_ITEM = { ammo_magslug: ['rockets', 5, 5], ammo_trap: ['grenades', 5, 5], ammo_flechettes: ['bullets', 50, 50], ammo_prox: ['grenades', 5, 5], ammo_disruptor: ['slugs', 10, 10], ammo_tesla: ['grenades', 5, 5], ammo_nuke: ['rockets', 5, 5], ammo_bullets: ['bullets', 50, 50], ammo_shells: ['shells', 10, 10], ammo_grenades: ['grenades', 5, 5], ammo_rockets: ['rockets', 5, 5], ammo_cells: ['cells', 50, 30], ammo_slugs: ['slugs', 10, 10], ammo_lightning: ['lightning', 60, 60], ammo_bfg: ['bfgam', 15, 15], ammo_nails: ['nails', 20, 20], ammo_mines: ['mines', 10, 10], ammo_belt: ['belt', 100, 100] };
 const ammoOn = () => !S.infAmmo && (campaignMode || BOT.on);
 const affordable = i => { if (!ammoOn()) return true; const a = (S.wset === 'q3' ? Q3_AMMO : Q2_AMMO)[i]; return !a || AMMO[a[0]] >= a[1]; };
 function spendAmmo(a) { if (!ammoOn() || !a) return; AMMO[a[0]] = Math.max(0, AMMO[a[0]] - a[1]); updateWeaponHud(false); }
@@ -3615,6 +3664,10 @@ function updateProjectiles(msec) {
         if (simTime - (pr.lastB || -1e9) > 120) { pr.lastB = simTime; playAt(pr.q3 ? (Math.random() < .5 ? 'q3gb1' : 'q3gb2') : pr.hand ? (Math.random() < .5 ? 'hgBounce1' : 'hgBounce2') : 'gbounce', pr.p); }
       } else pr.p = end;
       continue;
+    }
+    if (pr.homing) { // heat-seeking: turn a little toward the target each frame
+      const T = pr.tgt && !pr.tgt.dead ? [pr.tgt.o[0], pr.tgt.o[1], pr.tgt.o[2] + 8] : !PL.dead ? playerCenter() : null;
+      if (T) { const sp = Math.hypot(...pr.v), want = nrm(sub3(T, pr.p)), cur = pr.v.map(x => x / sp), k = Math.min(1, 2.5 * dt), d = nrm(cur.map((x, i) => x + (want[i] - x) * k)); pr.v = d.map(x => x * sp); }
     }
     const end = pr.p.map((v, k) => v + pr.v[k] * dt), st = pr.owner ? shotTrace(pr.p, end, pr.owner) : null, t = st ? st.t : Q.trace(pr.p, Z3, Z3, end, Q.MASK_SHOT);
     fxTrail(pr, Math.hypot(...pr.v) * dt * t.fraction);
@@ -3829,7 +3882,16 @@ const ITEMS = {
   ammo_rockets: { m: 'items/ammo/rockets/medium', n: 'Rockets', am: 1 }, ammo_slugs: { m: 'items/ammo/slugs/medium', n: 'Slugs', am: 1 }, ammo_grenades: { m: 'items/ammo/grenades/medium', n: 'Grenades', am: 1, w: 10 },
   key_data_cd: { m: 'items/keys/data_cd', n: 'Data CD', key: 1 }, key_power_cube: { m: 'items/keys/power', n: 'Power Cube', key: 1 }, key_pyramid: { m: 'items/keys/pyramid', n: 'Pyramid Key', key: 1 },
   key_data_spinner: { m: 'items/keys/spinner', n: 'Data Spinner', key: 1 }, key_pass: { m: 'items/keys/pass', n: 'Security Pass', key: 1 }, key_blue_key: { m: 'items/keys/key', n: 'Blue Key', key: 1 },
-  key_red_key: { m: 'items/keys/red_key', n: 'Red Key', key: 1 }, key_commander_head: { m: 'monsters/commandr/head', n: "Commander's Head", key: 1 }, key_airstrike_target: { m: 'items/keys/target', n: 'Airstrike Marker', key: 1 }
+  key_red_key: { m: 'items/keys/red_key', n: 'Red Key', key: 1 }, key_commander_head: { m: 'monsters/commandr/head', n: "Commander's Head", key: 1 }, key_airstrike_target: { m: 'items/keys/target', n: 'Airstrike Marker', key: 1 },
+  // The Reckoning and Ground Zero: their weapons fire as the nearest Quake II gun, their ammo fills that gun's ammo
+  weapon_boomer: { m: 'weapons/g_boom', n: 'Ion Ripper', w: 7 }, weapon_phalanx: { m: 'weapons/g_shotx', n: 'Phalanx Particle Cannon', w: 6 }, ammo_trap: { m: 'weapons/g_trap', n: 'Trap', am: 1, w: 10 },
+  ammo_magslug: { m: 'objects/ammo', n: 'Mag Slug', am: 1 }, item_quadfire: { m: 'items/quadfire', n: 'DualFire Damage', quad: 30 }, key_green_key: { m: 'items/keys/green_key', n: 'Green Key', key: 1 },
+  weapon_etf_rifle: { m: 'weapons/g_etf_rifle', n: 'ETF Rifle', w: 4 }, weapon_proxlauncher: { m: 'weapons/g_plaunch', n: 'Prox Launcher', w: 5 }, weapon_plasmabeam: { m: 'weapons/g_beamer', n: 'Plasma Beam', w: 7 },
+  weapon_chainfist: { m: 'weapons/g_chainf', n: 'Chainfist', w: 1 }, weapon_disintegrator: { m: 'weapons/g_dist', n: 'Disruptor', w: 8 },
+  ammo_flechettes: { m: 'ammo/am_flechette', n: 'Flechettes', am: 1 }, ammo_prox: { m: 'ammo/am_prox', n: 'Prox Mines', am: 1 }, ammo_disruptor: { m: 'ammo/am_disr', n: 'Rounds', am: 1 }, ammo_tesla: { m: 'ammo/am_tesl', n: 'Tesla', am: 1, w: 10 }, ammo_nuke: { m: 'weapons/g_nuke', n: 'A-M Bomb', am: 1 },
+  item_double: { m: 'items/ddamage', n: 'Double Damage', quad: 30 }, item_ir_goggles: { m: 'items/goggles', n: 'IR Goggles' }, item_compass: { m: 'objects/fire', n: 'Compass' },
+  item_sphere_vengeance: { m: 'items/vengnce', n: 'Vengeance Sphere' }, item_sphere_hunter: { m: 'items/hunter', n: 'Hunter Sphere' }, item_sphere_defender: { m: 'items/defender', n: 'Defender Sphere', inv: 10 }, item_doppleganger: { m: 'items/dopple', n: 'Doppleganger' },
+  key_nuke_container: { m: 'weapons/g_nuke', n: 'Antimatter Pod', key: 1 }, key_nuke: { m: 'weapons/g_nuke', n: 'Antimatter Bomb', key: 1 }
 };
 function setupItem(e, cm) {
   const def = (world.q3 ? ITEMS_Q3 : ITEMS)[e.cls], o = e.origin, t = Q.trace([o[0], o[1], o[2] + 1], [-15, -15, -15], [15, 15, 15], [o[0], o[1], o[2] - 128], Q.MASK_SOLID, true);
@@ -3857,13 +3919,77 @@ function touchItems() {
     if (d.maxh) PL.maxHealth += d.maxh;
     if (d.key) E.keys.add(e.cls);
     const ai = AMMO_ITEM[e.cls]; if (d.am && ai) { if (ammoOn() && AMMO[ai[0]] >= MAXAM[ai[0]]) continue; addAmmo(ai[0], q3i ? ai[2] : ai[1]); }
-    e.taken = true; giveWeapon(e.cls); if (BOT.on && BOT.mode === 'dm' && !d.key) e.respawnAt = simTime + (q3i ? (d.w ? 5000 : d.quad || d.inv ? 120000 : d.am ? 40000 : d.h ? 35000 : 25000) : (d.w ? 8000 : d.quad || d.inv ? 90000 : 25000)); if (NET.on) netPickup(e);
+    e.taken = true; giveWeapon(e.cls); if (BOT.on && BOT.mode === 'dm' && !d.key) e.respawnAt = simTime + (q3i ? (d.w ? 5000 : d.quad || d.inv ? 120000 : d.am ? 40000 : d.h ? 35000 : 25000) : (d.w ? 8000 : d.quad || d.inv ? 90000 : 25000)); if (NET.on) { if (NET.coop) { if (!d.w) netOut({ k: 'pickup', i: E.items.indexOf(e), r: 0 }); } else netPickup(e); }
     const snd = d.s || (d.w ? 'misc/w_pkup.wav' : d.am ? 'misc/am_pkup.wav' : 'items/pkup.wav'), b = AC && getSnd(snd); if (b) playBuf(b, .8); else if (b === null) synth('pickup', .8);
     toast('You got the ' + d.n, 1500);
     useTargets(e, 'player');
   }
 }
 
+
+// ---------- campaign extras: lasers, earthquakes, pain zones for monsters, decorations, cross-level flags, spawned monsters ----------
+const XL = { flags: 0 }; // target_crosslevel_trigger bits, kept between the maps of one unit
+const DECOR = { // static or looping models with no behaviour
+  misc_deadsoldier: { m: 'deadbods/dude', f: sf => sf & 2 ? 1 : sf & 4 ? 2 : sf & 8 ? 3 : sf & 16 ? 4 : sf & 32 ? 5 : 0 }, misc_banner: { m: 'objects/banner', n: 16 }, misc_satellite_dish: { m: 'objects/satellite' },
+  misc_bigviper: { m: 'ships/bigviper' }, misc_viper: { m: 'ships/viper' }, misc_strogg_ship: { m: 'ships/strogg1' }, misc_blackhole: { m: 'objects/black', n: 19 }, misc_eastertank: { m: 'monsters/tank', f: 254, n: 0 },
+  misc_easterchick: { m: 'monsters/bitch', f: 208 }, misc_easterchick2: { m: 'monsters/bitch', f: 248 }, misc_gib_arm: { m: 'objects/gibs/arm' }, misc_gib_leg: { m: 'objects/gibs/leg' }, misc_gib_head: { m: 'objects/gibs/head' },
+  light_mine1: { m: 'objects/minelite/light1' }, light_mine2: { m: 'objects/minelite/light2' },
+  misc_crashviper: { m: 'ships/bigviper' }, misc_transport: { m: 'objects/ship' }, misc_viper_missile: { m: 'objects/bomb' }, misc_nuke_core: { m: 'objects/core' }
+};
+function runCampaignFx(msec) {
+  if (!E) return;
+  if (E.quake) { if (simTime > E.quake.until) E.quake = null; else shake = Math.max(shake, E.quake.mag); }
+  for (const L of E.lasers) {
+    if (!L.on || L.dead) { L.end = null; continue; }
+    if (L.pulse && (simTime / 1000 / L.pulse | 0) % 2) { L.end = null; continue; }
+    const a = L.origin, b = a.map((v, i) => v + L.dir[i] * 2048), st = shotTrace(a, b, L, Q.MASK_SHOT);
+    L.end = st.player ? st.p : st.t.endpos;
+    if (simTime < (L.next || 0)) continue; L.next = simTime + 100;
+    if (st.player) damagePlayer(L.dmg, a); else if (st.t.hit && st.t.hit.takedamage && netSpawnable()) damageEnt(st.t.hit, L.dmg, 'monster');
+    if (st.t.fraction < 1 && Math.random() < .3) fxImpact(st.t, 'blaster');
+  }
+  for (const t of E.triggers) { // trigger_hurt hurts monsters too
+    if (t.type !== 'hurt' || !t.monsters || t.off || simTime < (t.mnext || 0)) continue; t.mnext = simTime + t.every;
+    for (const m of E.monsters) if (!m.dead && !m.hidden && !m.puppet && m.o[0] > t.mins[0] && m.o[0] < t.maxs[0] && m.o[1] > t.mins[1] && m.o[1] < t.maxs[1] && m.o[2] > t.mins[2] - 24 && m.o[2] < t.maxs[2] + 24) damageMonster(m, t.dmg, 'world');
+  }
+}
+let laserTex = null;
+function drawLasers(vp) {
+  if (!E || !E.lasers.length) return;
+  const v = [];
+  for (const L of E.lasers) {
+    if (!L.end) continue; const a = L.origin, b = L.end, d = sub3(b, a), len = Math.hypot(...d); if (len < 2) continue;
+    const f = d.map(x => x / len), up0 = Math.abs(f[2]) < .9 ? [0, 0, 1] : [1, 0, 0], R0 = nrm(Q.cross(f, up0)), U0 = Q.cross(f, R0), hw = L.fat ? 6 : 1.6;
+    for (const an of [0, Math.PI / 2]) { const R = [0, 1, 2].map(k => (R0[k] * Math.cos(an) + U0[k] * Math.sin(an)) * hw); const p = (q, sg) => [q[0] + R[0] * sg, q[1] + R[1] * sg, q[2] + R[2] * sg];
+      v.push(...p(a, -1), 0, 0, ...p(b, -1), 1, 0, ...p(b, 1), 1, 1, ...p(a, -1), 0, 0, ...p(b, 1), 1, 1, ...p(a, 1), 0, 1); }
+    L.vn = v.length;
+  }
+  if (!v.length) return;
+  if (!laserTex) { const N = 8, px = new Uint8Array(N * 4 * 1); for (let i = 0; i < N; i++) { const k = Math.round(255 * Math.sin(Math.PI * (i + .5) / N)); px.set([k, k, k, 255], i * 4); } laserTex = makeTex(gl, px, 1, N); }
+  gl.useProgram(beamP.p); gl.bindVertexArray(beamVAO); gl.bindBuffer(gl.ARRAY_BUFFER, beamVBO); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(v), gl.STREAM_DRAW);
+  gl.uniformMatrix4fv(beamP.u.uVP, false, vp); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, laserTex); gl.uniform1i(beamP.u.uTex, 0); gl.uniform3f(beamP.u.uST, 0, 0, 0);
+  gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE); gl.depthMask(false); gl.disable(gl.CULL_FACE);
+  let o = 0; for (const L of E.lasers) { if (!L.end || !L.vn) continue; const n = L.vn - o; const fl = .8 + .2 * Math.sin(realTime / 30 + L.origin[0]); gl.uniform4f(beamP.u.uCol, L.col[0] * fl, L.col[1] * fl, L.col[2] * fl, 1); gl.drawArrays(gl.TRIANGLES, o / 5, n / 5); o = L.vn; }
+  gl.depthMask(true); gl.disable(gl.BLEND);
+}
+function drawDecor(vp, shade) {
+  if (!E) return; const t = realTime / 1000;
+  for (const d of E.decor) {
+    const im = IM[d.path]; if (!im) continue; const M = entMat(d.o, d.yaw, 0);
+    if (d.n > 1) { const x = t * d.fps, a = d.fr + (Math.floor(x) % d.n), b = d.fr + ((Math.floor(x) + 1) % d.n); md2Draw(mainCtx, im.inst, im.tex, Math.min(a, im.m.frames.length - 1), Math.min(b, im.m.frames.length - 1), x % 1, vp, M, shade, .6); }
+    else { const f = Math.min(d.fr, im.m.frames.length - 1); md2Draw(mainCtx, im.inst, im.tex, f, f, 0, vp, M, shade, .6); }
+  }
+}
+const netSpawnable = () => !(NET.on && NET.coop && !NET.master); // in online co-op only the player running the monsters spawns them
+function spawnMonsterAt(cls, o, yaw, speed, dir) {
+  if (!MON[cls] || !world) return null;
+  const e = { cls, kv: { angle: String(yaw) }, spawnflags: 0, origin: o.slice(), classname: cls, targetname: null, target: null };
+  setupMonster(e, world.cm); e.enemy = true; e.netIdx = E.monsters.indexOf(e);
+  if (speed) e.vel = dir.map(x => x * speed);
+  loadMonsterModels(); addLight(o, 200, [.6, .8, 1], .5); fxImpact({ endpos: o, normal: [0, 0, 1], surf: 0, hit: null }, 'blaster');
+  if (NET.on && NET.coop && NET.master) netOut({ k: 'mspawn', c: cls, o: o.map(nr1), y: nr1(yaw), n: e.nid });
+  return e;
+}
 // ---------- monsters ----------
 // dir = models/monsters/<dir>; att/att2 = [type, damage]; melee = damage; bbox; run speed (ups); fly/swim; sounds in sound/<path>
 const ms = (dir, o) => Object.assign({ dir, skin: 0, hp: 100, gib: -40, mass: 200, run: 130, walk: 50, bbox: [-16, -16, -24, 16, 16, 32] }, o);
@@ -3892,7 +4018,25 @@ const MON = {
   monster_boss2: ms('boss2', { hp: 2000, gib: -500, mass: 1000, run: 110, fly: 96, bbox: [-56, -56, 0, 56, 56, 80], att: ['mg', 6], att2: ['rocket', 50, 500], painChance: .1, snd: SS('bosshovr', ['bhvunqv1.wav', 'bhvpain1.wav', 'bhvdeth1.wav', 'bhvengn1.wav']) }),
   monster_jorg: ms('boss3/jorg', { hp: 3000, gib: -2000, mass: 1000, run: 60, bbox: [-80, -80, 0, 80, 80, 140], att: ['mg', 6], att2: ['bfg', 50, 300], painChance: .05, snd: SS('boss3', ['bs3srch1.wav', 'bs3pain1.wav', 'bs3deth1.wav', 'bs3idle1.wav', 'xfire.wav']) }),
   monster_makron: ms('boss3/rider', { hp: 3000, gib: -2000, mass: 500, run: 100, bbox: [-30, -30, 0, 30, 30, 90], att: ['rail', 50], att2: ['bfg', 50, 300], painChance: .05, snd: SS('makron', ['voice4.wav', 'pain1.wav', 'death.wav', 'voice.wav', 'blaster.wav']) }),
-  monster_insane: ms('insane', { hp: 100, gib: -50, mass: 300, run: 60, passive: true, snd: SS('insane', ['insane1.wav', 'insane4.wav', 'insane10.wav', 'insane5.wav']) })
+  monster_insane: ms('insane', { hp: 100, gib: -50, mass: 300, run: 60, passive: true, snd: SS('insane', ['insane1.wav', 'insane4.wav', 'insane10.wav', 'insane5.wav']) }),
+  // The Reckoning (Xatrix)
+  monster_gekk: ms('gekk', { hp: 125, gib: -30, mass: 300, run: 200, bbox: [-24, -24, -24, 24, 24, 24], att: ['blaster', 5, 550], melee: 6, snd: SS('gek', ['gk_sght1.wav', 'gk_pain1.wav', 'gk_deth1.wav', 'gkidle1.wav', 'gk_atck1.wav', 0, 'gk_atck2.wav']) }),
+  monster_fixbot: ms('fixbot', { hp: 150, gib: -40, mass: 150, run: 160, fly: 32, bbox: [-32, -32, -24, 32, 32, 24], att: ['blaster', 15, 1000], snd: SS('flyer', ['flysght1.wav', 'flypain1.wav', 'flydeth1.wav', 'flysrch1.wav', 'flyatck3.wav']) }),
+  monster_chick_heat: ms('bitch2', { hp: 175, gib: -70, run: 150, bbox: [-16, -16, 0, 16, 16, 56], att: ['rocket', 50, 500], homing: true, melee: 10, snd: SS('chick', ['chksght1.wav', 'chkpain1.wav', 'chkdeth1.wav', 'chkidle1.wav', 'chkatck2.wav', 0, 'chkatck3.wav']) }),
+  monster_gladb: ms('gladb', { hp: 800, gib: -175, mass: 400, run: 140, bbox: [-32, -32, -24, 32, 32, 64], att: ['rocket', 50, 725], melee: 20, snd: SS('gladiator', ['sight.wav', 'pain.wav', 'glddeth2.wav', 'gldidle1.wav', 'railgun.wav', 0, 'melee1.wav']) }),
+  monster_soldier_hypergun: ms('soldier', { skin: 6, hp: 60, gib: -30, mass: 100, run: 140, att: ['hyper', 4, 1000], snd: SS('soldier', [...SOLDIER_S, 'solatck2.wav']) }),
+  monster_soldier_lasergun: ms('soldier', { skin: 8, hp: 70, gib: -30, mass: 100, run: 140, att: ['hyper', 2, 1500], snd: SS('soldier', [...SOLDIER_S, 'solatck2.wav']) }),
+  monster_soldier_ripper: ms('soldier', { skin: 10, hp: 50, gib: -30, mass: 100, run: 140, att: ['blaster', 5, 550], snd: SS('soldier', [...SOLDIER_S, 'solatck2.wav']) }),
+  monster_boss5: ms('boss5', { hp: 1500, gib: -500, mass: 800, run: 60, bbox: [-64, -64, 0, 64, 64, 112], att: ['mg', 6], att2: ['rocket', 50, 500], painChance: .1, snd: SS('bosstank', ['btkunqv1.wav', 'btkpain1.wav', 'btkdeth1.wav', 'btkengn1.wav']) }),
+  // Ground Zero (Rogue)
+  monster_stalker: ms('stalker', { hp: 250, gib: -50, mass: 250, run: 250, bbox: [-28, -28, -18, 28, 28, 18], att: ['blaster', 5, 800], melee: 5, snd: SS('stalker', ['sight.wav', 'pain.wav', 'death.wav', 'idle.wav', 'laser.wav', 0, 'melee1.wav']) }),
+  monster_turret: ms('turret', { hp: 50, gib: -100, mass: 250, run: 0, fly: 0, bbox: [-12, -12, -12, 12, 12, 12], att: ['blaster', 20, 1000], painChance: 0, snd: SS('turret', ['sight.wav', 'pain.wav', 'death.wav', 'idle.wav', 'fire.wav']) }),
+  monster_carrier: ms('carrier', { hp: 2000, gib: -1000, mass: 1000, run: 80, fly: 96, bbox: [-56, -56, -44, 56, 56, 44], att: ['mg', 6], att2: ['grenade', 50], painChance: .1, snd: SS('carrier', ['sight.wav', 'pain_md.wav', 'death.wav', 'idle.wav', 'cbfire.wav']) }),
+  monster_widow: ms('blackwidow', { hp: 2000, gib: -5000, mass: 1500, run: 100, bbox: [-40, -40, 0, 40, 40, 144], att: ['hyper', 18, 1000], att2: ['rail', 50], painChance: .1, snd: SS('widow', ['laugh.wav', 'bwpain1.wav', 'death.wav', 'laugh.wav', 'blaster.wav']) }),
+  monster_widow2: ms('blackwidow2', { hp: 2000, gib: -5000, mass: 2000, run: 90, bbox: [-70, -70, 0, 70, 70, 144], att: ['hyper', 18, 1000], att2: ['bfg', 50, 300], painChance: .05, snd: SS('widow', ['laugh.wav', 'bw2pain1.wav', 'death.wav', 'laugh.wav', 'blaster.wav']) }),
+  monster_daedalus: ms('hover', { skin: 2, hp: 450, gib: -100, mass: 225, run: 160, fly: 64, bbox: [-24, -24, -24, 24, 24, 32], att: ['hyper', 2, 1000], snd: SS('daedalus', ['daedsght.wav', 'daedpain1.wav', 'daeddeth1.wav', 'daedidle1.wav', 'daedatck1.wav']) }),
+  monster_medic_commander: ms('medic', { skin: 2, hp: 600, gib: -130, mass: 600, run: 140, bbox: [-24, -24, -24, 24, 24, 32], att: ['hyper', 2, 1000], snd: SS('medic_commander', ['medsght.wav', 'medpain1.wav', 'meddeth.wav', 'medidle.wav', 'medatck1.wav']) }),
+  monster_kamikaze: ms('flyer', { skin: 2, hp: 50, gib: -40, mass: 100, run: 320, fly: 48, melee: 50, snd: SS('flyer', ['flysght1.wav', 'flypain1.wav', 'flydeth1.wav', 'flysrch1.wav', 'flyatck3.wav', 0, 'flyatck1.wav']) })
 };
 const MM = {}; // loaded monster models by dir
 const FAKE_ANIMS = (() => { const r = n => Array.from({ length: n }, (_, i) => i); return { stand: [r(10)], walk: [r(8)], run: [r(6)], attack: [r(9)], melee: [r(8)], pain: [r(4)], death: [r(8)], duck: [r(5)] }; })();
@@ -3922,6 +4066,7 @@ async function loadMonsterModels() {
     const skins = []; for (const s of m.skins) skins.push(await getSkin(mainCtx, s));
     MM[dir] = { m, inst: getInst(mainCtx, path, m), skins, cats: classifyAnims(m) };
   }
+  for (const d of E.decor) if (!(d.path in IM)) { IM[d.path] = null; IM[d.path] = await loadSimple(mainCtx, d.path); }
   for (const k of ['gib_meat', 'gib_bone', 'gib_head']) if (!PM[k]) PM[k] = await loadSimple(mainCtx, 'models/objects/gibs/' + { gib_meat: 'sm_meat', gib_bone: 'bone', gib_head: 'head2' }[k] + '/tris.md2');
   await loadShaderScripts();
   for (const e of E.items) {
@@ -3939,6 +4084,7 @@ const Q2_TO_Q3_EXTRA = { item_health_small: 'item_health_small', item_health: 'i
 const itemDef = e => { if (!world.q3 && q3Mode()) { const k = Q2_TO_Q3_ITEM[e.cls] || Q2_TO_Q3_EXTRA[e.cls]; if (k && ITEMS_Q3[k]) return ITEMS_Q3[k]; } return e.item; };
 const Q2_TO_Q3_ITEM = { weapon_shotgun: 'weapon_shotgun', weapon_supershotgun: 'weapon_lightning', weapon_machinegun: 'weapon_machinegun', weapon_chaingun: 'weapon_chaingun', weapon_grenadelauncher: 'weapon_grenadelauncher', weapon_rocketlauncher: 'weapon_rocketlauncher', weapon_hyperblaster: 'weapon_plasmagun', weapon_railgun: 'weapon_railgun', weapon_bfg: 'weapon_bfg' };
 function setupMonster(e, cm) {
+  if (e.cls !== 'bot' && E) { e.nid = E.nidN = (E.nidN || 0) + 1; (E.byNid || (E.byNid = new Map())).set(e.nid, e); if (NET.on && NET.coop && !NET.master) e.puppet = true; }
   const def = MON[e.cls]; e.mon = def; e.isMonster = true; e.allowDead = true;
   e.mmins = def.bbox.slice(0, 3); e.mmaxs = def.bbox.slice(3);
   let o = e.origin.slice();
@@ -4059,6 +4205,7 @@ function monsterLead(m, a, aim, dmg, hs, vs) {
   const t = s.t; if (t.fraction < 1 && !(t.surf & Q.SURF_SKY)) { if (t.hit && t.hit.takedamage) { if (m.ally && t.hit.bot) return; damageEnt(t.hit, dmg, 'monster'); if (t.hit.isMonster) { bloodFx(t.endpos, t.normal, .5); return; } } fxImpact(t, 'shotgun'); }
 }
 function monsterFire(m, spec, P) {
+  if (NET.on && NET.coop && NET.master && m.nid && !NETGHOST) netOut({ k: 'mfire', i: m.nid, s: [spec[0], 0, spec[2] || 0], p: P.map(nr1) });
   const [type, dmg, speed] = spec, mz = muzzleOf(m), tgt = type === 'rail' ? m.aimP : P, aim = nrm([tgt[0] - mz[0], tgt[1] - mz[1], tgt[2] - mz[2]]);
   const sndKey = spec === m.mon.att2 && m.mon.snd.fire2 ? 'fire2' : 'fire'; let fb = { blaster: 'blaster', hyper: 'hyper', shotgun: 'shotgun', mg: 'mg' + (1 + (Math.random() * 5 | 0)), rocket: 'fire', grenade: 'gl', rail: 'rail', bfg: 'bfgCharge' }[type];
   if (m.set === 'q3') fb = { mg: 'q3mg' + (1 + (Math.random() * 4 | 0)), shotgun: 'q3sg', rocket: 'q3rl', grenade: 'q3gl' }[type] || fb;
@@ -4069,7 +4216,7 @@ function monsterFire(m, spec, P) {
     case 'blaster': case 'hyper': projs.push({ type: 'bolt', p: mz, v: aim.map(x => x * (speed || 600)), dmg, life: 10000, owner: m }); break;
     case 'shotgun': for (let i = 0; i < 12; i++) monsterLead(m, mz, aim, dmg, 1000, 500); break;
     case 'mg': monsterLead(m, mz, aim, dmg, 300, 500); break;
-    case 'rocket': projs.push({ type: 'rocket', p: mz, v: aim.map(x => x * (speed || 550)), dmg, rdmg: dmg, radius: dmg + 20, life: 8000, owner: m }); break;
+    case 'rocket': projs.push({ type: 'rocket', p: mz, v: aim.map(x => x * (speed || 550)), dmg, rdmg: dmg, radius: dmg + 20, life: 8000, owner: m, homing: !!m.mon.homing, tgt: m.tgtBot || null }); break;
     case 'grenade': { throwGrenade(mz, aim, dmg, 600, 2.5, dmg + 40, false); projs[projs.length - 1].owner = m; break; }
     case 'rail': { const end = mz.map((v, i) => v + aim[i] * 8192), s = shotTrace(mz, end, m, Q.MASK_SOLID); const ep = s.player ? s.p : s.t.endpos; fxBeam(mz, ep, 'rail'); if (s.player) damagePlayer(dmg, mz); else if (s.t.fraction < 1) fxImpact(s.t, 'rail'); break; }
     case 'bfg': projs.push({ type: 'bfg', p: mz, v: aim.map(x => x * (speed || 300)), dmg, life: 8000, laser: 0, owner: m }); break;
@@ -4134,6 +4281,7 @@ function monsterThink(m) {
   else if (!m.air && (vis ? d > (def.melee && !def.att ? 40 : 64) : Math.hypot(goal[0] - m.o[0], goal[1] - m.o[1]) > 16)) moveToGoal(m, goal, def.run * .1);
 }
 function damageMonster(m, dmg, src) {
+  if (m.puppet) { if (!src && !m.dead) netMonHitOut(m, dmg); return; }
   if (m.bot) { damageBot(m, dmg, src); return; }
   if (m.hidden || m.gibbed) return; m.lastDmg = dmg;
   m.health -= dmg;
@@ -4157,6 +4305,7 @@ function makeMonsterRagdoll(m) {
   m.rag = createRagdoll({ kind, o: m.ro.slice(), yaw: m.ryaw, mins: m.mmins.slice(), maxs: m.mmaxs.slice(), vel: m.vel.slice(), impulse: imp, capture, render, ent: m });
 }
 function monsterDie(m) {
+  if (NET.on && NET.coop && NET.master && m.nid) netOut({ k: 'mdie', i: m.nid });
   if (S.ragdoll) makeMonsterRagdoll(m);
   m.dead = true; m.act = null; m.box.dead = true; m.mmaxs = [m.mmaxs[0], m.mmaxs[1], m.mmins[2] + 16]; updateBox(m);
   setAnim(m, 'death', false); playPathAt(monSnd(m, 'death'), m.o); PL.kills++;
@@ -4166,7 +4315,7 @@ function monsterDie(m) {
   if (m.kv.killtarget) useTargets(m, 'player');
 }
 function gibMonster(m) {
-  if (m.gibbed) return; m.gibbed = true; m.box.active = false; m.takedamage = false;
+  if (m.gibbed) return; if (NET.on && NET.coop && NET.master && m.nid) netOut({ k: 'mgib', i: m.nid }); m.gibbed = true; m.box.active = false; m.takedamage = false;
   if (m.rag) { const i = ragdolls.indexOf(m.rag); if (i >= 0) ragdolls.splice(i, 1); m.rag = null; }
   const c = entCenter(m), sz = m.mmaxs[0] - m.mmins[0];
   playAt('gib', c);
@@ -4267,7 +4416,7 @@ function beginBotMatch(n) {
   BOT.on = true; BOT.over = false; BOT.startT = simTime; BOT.frags = BOT.deaths = 0; BOT.bots = []; BOT.lastShooter = null; BOT.roster = pickedRoster(n);
   if (BOT.mode === 'coop') { // the level keeps its monsters; the bots are on your side
     for (let i = 0; i < n; i++) spawnBot();
-    toast(`Co-op — ${BOT.bots.map(b => b.name).join(', ')} fight beside you.`, 4000); return;
+    if (!NET.on) toast(`Co-op — ${BOT.bots.map(b => b.name).join(', ')} fight beside you.`, 4000); return;
   }
   for (const m of E.monsters) { m.hidden = true; m.takedamage = false; m.box.active = false; }
   E.monsters.length = 0; E.damageables = E.damageables.filter(x => !x.isMonster); PL.total = PL.kills = 0;
@@ -4598,7 +4747,7 @@ function formationSpot(m, idx) {
 }
 function setRole(b, role, plan) { if (b.role !== role) { b.role = role; b.roleT = simTime + 2800; if (role !== 'follow') say(b, role); } b.plan = plan || null; }
 function squadPlan() {
-  const bots = BOT.bots.filter(b => !b.dead && !b.hidden); if (!bots.length) { BOT.plan = null; return; }
+  const bots = BOT.bots.filter(b => !b.dead && !b.hidden && !b.net); if (!bots.length) { BOT.plan = null; return; }
   const pc = playerCenter(), threats = squadThreats(bots);
   const hold = b => simTime < (b.roleT || 0) && b.role !== 'follow' && b.role !== 'investigate';
   if (!threats.length) {
@@ -4770,6 +4919,7 @@ function runMonsters(msec) {
   if (BOT.on) updateBots();
   for (const m of E.monsters) {
     if (m.net) { netEntStep(m); continue; }
+    if (m.puppet) { netMonStep(m); continue; }
     if (m.gibbed || m.hidden) continue;
     monsterPhysics(m, dt);
     m.thinkT -= msec; if (m.thinkT > 0) continue; m.thinkT += 100;
@@ -4799,9 +4949,10 @@ function tick(msec) {
       const fighting = squadInCombat(); if (fighting) PL.calmT = simTime;
       $('deadSub').textContent = fighting ? 'your squad is still in combat — hold on…' : 'your squad is securing the area…';
       if (!loadingMap && simTime - PL.deadT > 1400 && simTime - PL.calmT > 2500) coopRevive();
-    } else if (simTime - PL.deadT > 1400 && !loadingMap) { $('deadSub').textContent = 'click / fire / jump to respawn'; showDeathMenu(); }
+    } else if (NET.on && simTime - PL.deadT > 1400 && !loadingMap) { $('deadSub').textContent = 'click / fire / jump to respawn'; if (attackHeld() || keys.has('Space') || touch.jump) respawnPlayer(); }
+    else if (simTime - PL.deadT > 1400 && !loadingMap) { $('deadSub').textContent = 'click / fire / jump to respawn'; showDeathMenu(); }
   } else if (simTime - PL.deadT > 1000 && (attackHeld() || keys.has('Space') || touch.jump)) respawnPlayer(); }
-  else if (spLike() && simTime - SAVE.lastAuto > 60000 && PL.health >= 25 && (ps.flags & Q.PMF_ON_GROUND) && !ps.noclip) autosave('Checkpoint');
+  else if (spLike() && !NET.on && simTime - SAVE.lastAuto > 60000 && PL.health >= 25 && (ps.flags & Q.PMF_ON_GROUND) && !ps.noclip) autosave('Checkpoint');
   pm.q3 = q3Mode();
   if (pm.q3 && !PL.dead && simTime >= (PL.decayT || 0)) { PL.decayT = simTime + 1000; if (PL.health > PL.maxHealth) PL.health--; if (PL.armor > PL.maxHealth) PL.armor--; } // Q3 counts extra health and armor down
   const wasGround = !!(ps.flags & Q.PMF_ON_GROUND), oldVz = ps.velocity[2] / 8, oldZ = ps.origin[2];
@@ -5521,6 +5672,7 @@ function render(alpha, dt) {
       drawBuiltinMonster(vp, m, M);
     }
   }
+  drawDecor(vp, shade);
   sqFlush(); SQon = false; SHCAP = false; DRAWOFF = false; shadowPasses(vp, eye, W2, Hh);
   for (const e of E.items) {
     if (e.taken || e.hidden) continue;
@@ -5555,7 +5707,7 @@ function render(alpha, dt) {
   setDL0(0);
   if (world.trans.length) { gl.useProgram(worldP.p); gl.bindVertexArray(world.vao); drawBatches(world.trans, true); }
   if (world.add && world.add.length) { gl.blendFunc(gl.ONE, gl.ONE); gl.useProgram(worldP.p); gl.bindVertexArray(world.vao); drawBatches(world.add); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); }
-  drawLgBeam(vp); gl.useProgram(partP.p);
+  drawLgBeam(vp); drawLasers(vp); gl.useProgram(partP.p);
   drawParticles(vp, r, u, 1);
   drawParticles(vp, r, u, 0);
   gl.disable(gl.BLEND); gl.depthMask(true);
@@ -6988,7 +7140,7 @@ function startGame() {
 function pauseGame() {
   if (CON.open) { CON.open = false; $('console').hidden = true; }
   running = false; menu.hidden = false; keys.clear(); mouseFire = mouseJump = false; touch.jump = touch.duck = touch.fire = false;
-  tl.hidden = true; hideDeathMenu(); $('mainSaves').hidden = true; $('saveBtn').hidden = !(spLike() && !PL.dead); $('resume').hidden = !world || (spLike() && PL.dead); if (typeof showScreen === 'function') showScreen('main'); if (locked()) document.exitPointerLock(); setLoop(null);
+  tl.hidden = true; hideDeathMenu(); $('mainSaves').hidden = true; $('saveBtn').hidden = !(spLike() && !PL.dead) || NET.on; $('resume').hidden = !world || (spLike() && PL.dead); if (typeof showScreen === 'function') showScreen('main'); if (locked()) document.exitPointerLock(); setLoop(null);
   if (AC && AC.state === 'running') AC.suspend().catch(() => {}); if (musicEl) musicEl.pause();
   refreshPreview();
 }
@@ -7015,7 +7167,7 @@ $('botSkill').value = String(S.skill); $('botSkill').onchange = () => { S.skill 
 // whoever shoots decides whether they hit, and the one hit takes the damage. The match itself (frags, item pickups, limits, restarts) is kept
 // by one authority (netcore.js): the host's browser, or the dedicated server. Remote players are bot entities driven by those reports.
 const NC = window.NetCore;
-const NET = { on: false, mode: 'off', me: null, host: false, auth: null, tr: null, roster: [], ents: new Map(), lastAtk: null, stT: 0, fx: null, fxT: 0, hits: new Map(), pend: null, prevWset: null, starting: false, authT: 0, code: '' };
+const NET = { coop: false, master: false, masterId: null, prevSkill: null, mhits: new Map(), mT: 0, on: false, mode: 'off', me: null, host: false, auth: null, tr: null, roster: [], ents: new Map(), lastAtk: null, stT: 0, fx: null, fxT: 0, hits: new Map(), pend: null, prevWset: null, starting: false, authT: 0, code: '' };
 let NETCAP = null, NETGHOST = false;
 const nr1 = x => Math.round(x * 10) / 10;
 const finite = a => Array.isArray(a) && a.every(x => typeof x === 'number' && isFinite(x));
@@ -7037,7 +7189,7 @@ function netIn(from, m) {
   switch (m.k) {
     case 'welcome': netBegin(m); break;
     case 'roster': if (Array.isArray(m.list)) netRoster(m.list); break;
-    case 'item': { if (m.by === NET.me) break; const e = E && E.items[m.i | 0]; if (e && !e.taken) { e.taken = true; e.respawnAt = simTime + Math.max(1000, NC.num(m.r, 25000)); } break; }
+    case 'item': { if (m.by === NET.me) break; const e = E && E.items[m.i | 0]; if (e && !e.taken) { e.taken = true; e.respawnAt = NET.coop ? 0 : simTime + Math.max(1000, NC.num(m.r, 25000)); if (NET.coop && e.target) useTargets(e, 'net'); } break; }
     case 'frag': {
       const nm = id => id === NET.me ? 'You' : NC.clean((NET.roster.find(r => r.id === id) || {}).name) || 'Someone';
       if (m.by === NET.me) toast(`You fragged ${nm(m.v)}`, 1800); else if (m.v === NET.me) toast(m.by ? `${nm(m.by)} fragged you` : 'You died', 1800);
@@ -7047,6 +7199,14 @@ function netIn(from, m) {
     case 'restart': BOT.over = false; BOT.startT = simTime; if (E) for (const e of E.items) { e.taken = false; e.respawnAt = 0; } respawnPlayer(); toast('New round!', 2000); break;
     case 'bye': netDespawn(m.id); break;
     case 'full': netStop('That game is full.'); break;
+    case 'master': NET.masterId = typeof m.id === 'string' ? m.id : null; netSetMaster(); break;
+    case 'mst': if (NET.coop && from === NET.masterId && !NET.master) netMonIn(m); break;
+    case 'mfire': if (NET.coop && from === NET.masterId && !NET.master) netMonFireIn(m); break;
+    case 'mdie': case 'mgib': if (NET.coop && from === NET.masterId && !NET.master) netMonDieIn(m); break;
+    case 'mspawn': if (NET.coop && from === NET.masterId && !NET.master) netMonSpawnIn(m); break;
+    case 'mhit': if (NET.coop && NET.master && m.to === NET.me) netMonHitIn(from, m); break;
+    case 'act': if (NET.coop) netActIn(m); break;
+    case 'edie': if (NET.coop) netEdieIn(m); break;
     case 'st': netState(from, m); break;
     case 'fire': netFire(from, m); break;
     case 'hit': if (m.to === NET.me) netHitIn(from, m); break;
@@ -7061,11 +7221,15 @@ function netBegin(m) {
   NET.welcomed = true;
   NET.pend = { items: Array.isArray(m.items) ? m.items : [], elapsed: NC.num(m.elapsed), at: realTime };
   if (Array.isArray(m.list)) NET.roster = m.list;
-  const rules = m.rules || {};
+  const rules = m.rules || {}; NET.coop = rules.mode === 'coop'; NET.masterId = typeof m.master === 'string' ? m.master : null; NET.master = NET.masterId === NET.me;
+  if (NET.coop) { const sk = Math.max(0, Math.min(2, NC.num(rules.skill, 1) | 0)); if (sk !== S.skill) { if (NET.prevSkill === null) NET.prevSkill = S.skill; S.skill = sk; } }
   NET.starting = true;
-  try { BOT.mode = 'dm'; BOT.fragLimit = NC.num(rules.frag) | 0; BOT.timeLimit = NC.num(rules.time) | 0; startBotMatch(0, map, 'dm'); } finally { NET.starting = false; }
+  try {
+    BOT.mode = NET.coop ? 'coop' : 'dm'; BOT.fragLimit = NET.coop ? 0 : NC.num(rules.frag) | 0; BOT.timeLimit = NET.coop ? 0 : NC.num(rules.time) | 0;
+    if (NET.coop && !BUILTIN_MAPS[map]) { BOT.count = 0; BOT.pending = 1; loadMap(map, String(m.spot || ''), running); } else startBotMatch(0, map, BOT.mode);
+  } finally { NET.starting = false; }
   BOT.over = !!m.over;
-  netStatus(NET.host ? `Hosting${NET.code ? ' — code ' + NET.code : ''}. Waiting for players…` : 'Connected.');
+  netStatus(NET.host ? `Hosting${NET.code ? ' — code ' + NET.code : ''}. Waiting for players…` : NET.coop ? 'Connected — co-op.' : 'Connected.');
   $('netLeave').hidden = false;
 }
 function netRoster(list) {
@@ -7082,6 +7246,7 @@ function netSpawn(r) {
   const set = ['builtin', 'q2', 'q3'].includes(r.set) ? r.set : 'builtin';
   Object.assign(e, { bot: true, net: true, netId: r.id, netE: E, ally: false, name: NC.clean(r.name) || 'Player', set, model: set === 'builtin' ? null : NC.clean(r.model, 32) || null, skin: NC.clean(r.skin, 32) || null, hue: NC.num(r.hue) | 0,
     frags: NC.num(r.frags) | 0, deaths: NC.num(r.deaths) | 0, fireT: 0, wpn: 0, burst: 0, enemy: false, snaps: [], hidden: true, dead: true, takedamage: false, netGun: { q2: 6, q3: 4 } });
+  if (NET.coop) e.ally = true;
   e.box.active = false; BOT.bots.push(e); loadBotModel(e); NET.ents.set(r.id, e); return e;
 }
 function netDespawn(id) {
@@ -7093,6 +7258,7 @@ function netDespawn(id) {
 function netEnsure() {
   if (!BOT.on || !world || !E || BOT.pending) return;
   for (const [id, e] of NET.ents) if (e.netE !== E) NET.ents.delete(id); // a new level was loaded
+  if (NET.coop && E.netPup !== NET.master) { E.netPup = NET.master; for (const m of E.monsters) if (m.nid) m.puppet = !NET.master; }
   for (const r of NET.roster) if (r.id !== NET.me && !NET.ents.has(r.id)) netSpawn(r);
   if (NET.pend) {
     const p = NET.pend; NET.pend = null; BOT.startT = simTime - p.elapsed - (realTime - p.at);
@@ -7148,7 +7314,7 @@ function netCapEnd(c) {
 const NET_SND = /^[A-Za-z0-9_]{1,24}$/, NET_PROJ = new Set(['rocket', 'grenade', 'plasma', 'nail', 'bolt', 'bfg', 'bfg3', 'prox']), NET_IMP = new Set(['bullet', 'shotgun', 'blaster', 'rail']);
 function netFire(from, m) {
   const e = NET.ents.get(from); if (!e || e.dead || e.hidden) return;
-  e.shotT = simTime; const mz = [e.o[0], e.o[1], e.o[2] + 18];
+  e.shotT = simTime; const mz = [e.o[0], e.o[1], e.o[2] + 18]; if (NET.coop && NET.master) { noiseT = simTime; noiseP = e.o.slice(); }
   addLight(mz, 160, [1, .85, .45], .1);
   if (Array.isArray(m.s)) for (const k of m.s.slice(0, 4)) if (typeof k === 'string' && NET_SND.test(k)) playAt(k, mz, .9, 1, 'bot', e);
   if (Array.isArray(m.b)) for (const x of m.b.slice(0, 6)) { if (!Array.isArray(x) || !vec3ok(x.slice(0, 3)) || !vec3ok(x.slice(3, 6))) continue; fxBeam(x.slice(0, 3), x.slice(3, 6), x[6] === 'rail' ? 'rail' : 'laser'); }
@@ -7169,14 +7335,16 @@ function netTick() {
   }
   if (NET.fx && realTime - NET.fxT >= 60) { NET.fxT = realTime; netOut({ k: 'fire', ...NET.fx }); NET.fx = null; }
   for (const [to, h] of NET.hits) netOut({ k: 'hit', to, d: Math.round(h.d), f: h.f.map(nr1) }); NET.hits.clear();
+  if (NET.coop) { if (NET.master && realTime - NET.mT >= 100) { NET.mT = realTime; netMonOut(); } for (const [i, h] of NET.mhits) netOut({ k: 'mhit', to: NET.masterId, i, d: Math.round(h.d), f: h.f.map(nr1) }); NET.mhits.clear(); }
 }
 function netStart(mode, tr, host) {
+  NET.coop = false; NET.master = false; NET.masterId = null; NET.mhits.clear(); NET.prevSkill = null;
   NET.on = true; NET.mode = mode; NET.tr = tr; NET.host = host; NET.roster = []; NET.ents.clear(); NET.pend = null; NET.fx = null; NET.hits.clear(); NET.lastAtk = null; NET.prevWset = null; NET.welcomed = false;
 }
 function netHello() { netOut({ k: 'hello', name: NC.clean(S.netName) || 'Player', set: S.pset, model: S.pset === 'q3' ? S.model3 : S.pset === 'q2' ? S.model : null, skin: S.pset === 'q3' ? S.skin3 : S.pset === 'q2' ? S.skin : null }); }
 function netHostAuth() {
   const map = $('mpMap').value || 'test';
-  NET.auth = NC.createAuthority({ send: authSend, now: () => Date.now(), map: BUILTIN_MAPS[map] ? map : map, wset: S.wset, rules: { frag: +$('mpFrag').value, time: +$('mpTime').value }, max: 16 });
+  NET.auth = NC.createAuthority({ send: authSend, now: () => Date.now(), map, wset: S.wset, rules: { frag: +$('mpFrag').value, time: +$('mpTime').value, mode: $('matchMode').value === 'coop' ? 'coop' : 'dm', skill: S.skill }, max: 16 });
 }
 function netStop(msg) {
   const was = NET.on; NET.on = false;
@@ -7184,11 +7352,89 @@ function netStop(msg) {
   NET.tr = null; NET.auth = null; NET.host = false; NET.me = null; NET.code = '';
   for (const id of [...NET.ents.keys()]) netDespawn(id); NET.roster = [];
   if (NET.prevWset !== null) { setWsetTemp(NET.prevWset); NET.prevWset = null; }
+  if (NET.prevSkill !== null) { S.skill = NET.prevSkill; NET.prevSkill = null; }
+  if (E) for (const m of E.monsters) m.puppet = false; NET.coop = false; NET.master = false;
   if (NET.lobby) NET.lobby.presence({ g: null }).catch(() => {});
   $('netLeave').hidden = true; refreshNetUI();
   if (msg) { netStatus(msg, true); if (was && running) { toast(msg, 5000); pauseGame(); showScreen('mp'); } }
   else netStatus('');
 }
+
+// --- online co-op: one player (the host, or the first one on a dedicated server) runs the monsters; everyone else sees puppets that follow
+// that player's reports, and sends their hits on monsters to them. Triggers, buttons, shootable things, item pickups and level changes
+// are replayed on every machine, so the level moves the same way for everyone.
+const CATS = ['stand', 'walk', 'run', 'attack', 'melee', 'pain', 'death', 'duck'], LOOPCAT = new Set(['stand', 'walk', 'run']);
+function netSetMaster() {
+  const was = NET.master; NET.master = !!NET.masterId && NET.masterId === NET.me;
+  if (!NET.coop || !E) return;
+  for (const m of E.monsters) if (m.nid) { m.puppet = !NET.master; if (NET.master && !was && !m.dead) { m.thinkT = 0; if (m.snaps && m.snaps.length) m.enemy = true; } }
+  E.netPup = NET.master;
+  if (NET.master && !was) toast('You are now running the monsters for this co-op game.', 3000);
+}
+function netMonOut() {
+  if (!E || !world) return; const L = [], cap = NET.mode === 'cloud' ? 28 : 60;
+  for (const m of E.monsters) {
+    if (!m.nid || m.dead || m.hidden) continue;
+    const lo = m.netLast, moved = !lo || Math.abs(m.o[0] - lo[0]) + Math.abs(m.o[1] - lo[1]) + Math.abs(m.o[2] - lo[2]) > 1 || Math.abs(m.yaw - lo[3]) > 2 || m.cat !== lo[4] || realTime - (m.netT || 0) > 2500;
+    if (!moved) continue; m.netLast = [m.o[0], m.o[1], m.o[2], m.yaw, m.cat]; m.netT = realTime;
+    L.push([m.nid, nr1(m.o[0]), nr1(m.o[1]), nr1(m.o[2]), Math.round(m.yaw), Math.max(0, CATS.indexOf(m.cat))]); if (L.length >= cap) break;
+  }
+  if (L.length) netOut({ k: 'mst', w: world.name, l: L });
+}
+function netMonIn(m) {
+  if (!E || !world || m.w !== world.name || !Array.isArray(m.l) || !E.byNid) return;
+  for (const x of m.l.slice(0, 80)) {
+    if (!finite(x) || x.length < 6) continue; const mo = E.byNid.get(x[0]); if (!mo || mo.dead || !vec3ok(x.slice(1, 4))) continue;
+    (mo.snaps || (mo.snaps = [])).push({ t: realTime, o: [x[1], x[2], x[3]], y: x[4], c: CATS[x[5] | 0] || 'stand' }); if (mo.snaps.length > 6) mo.snaps.shift();
+  }
+}
+function netMonStep(m) { // a puppet monster: interpolate, play the animation the master's monster is in
+  if (simTime >= (m.animT || 0)) { m.animT = simTime + 100; if (m.list) advanceAnim(m); }
+  if (m.dead || m.hidden) return;
+  const S2 = m.snaps; if (!S2 || !S2.length) return;
+  const T = realTime - 120; let a = S2[0], b = S2[S2.length - 1];
+  for (let i = 0; i + 1 < S2.length; i++) if (S2[i].t <= T && S2[i + 1].t >= T) { a = S2[i]; b = S2[i + 1]; break; }
+  let k = b.t > a.t ? Math.max(0, Math.min(1, (T - a.t) / (b.t - a.t))) : 1; if (T > b.t) { a = b; k = 1; }
+  m.o = [0, 1, 2].map(i => a.o[i] + (b.o[i] - a.o[i]) * k); const dy = ((b.y - a.y) % 360 + 540) % 360 - 180; m.yaw = a.y + dy * k;
+  const c = (k >= .5 ? b : a).c; if (c !== m.cat && c !== 'death') { setAnim(m, c, LOOPCAT.has(c)); m.enemy = m.enemy || c !== 'stand'; }
+  updateBox(m);
+}
+function netMonHitOut(m, dmg) { if (NETGHOST || m.dead) return; const h = NET.mhits.get(m.nid) || { d: 0, f: (lastHitFrom || playerCenter()).slice() }; h.d += dmg; NET.mhits.set(m.nid, h); }
+function netMonHitIn(from, m) {
+  const mo = E && E.byNid && E.byNid.get(m.i | 0); if (!mo || mo.dead && mo.gibbed) return;
+  const d = Math.max(0, Math.min(2000, NC.num(m.d))); if (!d) return;
+  lastHitFrom = vec3ok(m.f) ? m.f : lastHitFrom; const shooter = NET.ents.get(from);
+  damageMonster(mo, d, 0); if (shooter && !mo.dead) { mo.enemy = true; mo.last = shooter.o.slice(); mo.lastT = simTime; }
+}
+function netMonFireIn(m) {
+  const mo = E && E.byNid && E.byNid.get(m.i | 0); if (!mo || mo.dead || mo.hidden || !Array.isArray(m.s) || !vec3ok(m.p)) return;
+  const type = String(m.s[0]); if (!['blaster', 'hyper', 'shotgun', 'mg', 'rocket', 'grenade', 'rail', 'bfg'].includes(type)) return;
+  const n0 = projs.length; mo.aimP = m.p.slice(); NETGHOST = true;
+  try { monsterFire(mo, [type, 0, Math.max(0, Math.min(3000, NC.num(m.s[2])))], m.p); } finally { NETGHOST = false; for (let i = n0; i < projs.length; i++) { projs[i].ghost = true; projs[i].dmg = projs[i].rdmg = 0; } }
+}
+function netMonDieIn(m) {
+  const mo = E && E.byNid && E.byNid.get(m.i | 0); if (!mo) return;
+  if (!mo.dead) { mo.puppetDie = true; monsterDie(mo); mo.puppetDie = false; }
+  if (m.k === 'mgib') gibMonster(mo);
+}
+function netMonSpawnIn(m) {
+  if (!world || !E || !MON[m.c] || !vec3ok(m.o)) return;
+  const e = spawnMonsterAt(m.c, m.o, NC.num(m.y), 0, [0, 0, 0]); if (!e) return;
+  if (typeof m.n === 'number' && E.byNid) { E.byNid.delete(e.nid); e.nid = m.n; E.byNid.set(e.nid, e); }
+  e.puppet = true;
+}
+function netAct(t) { if (NET.on && NET.coop && E) { const i = E.triggers.indexOf(t); if (i >= 0) netOut({ k: 'act', t: i }); } }
+function netActIn(m) {
+  const t = E && E.triggers[m.t | 0]; if (!t) return;
+  switch (t.type) {
+    case 'multi': { const e = t.e; if (!e.dead && e.enabled) multiFire(e, 'net'); break; }
+    case 'door': if (!t.door.dead) doorUse(t.door, 'net'); break;
+    case 'plat': { const p = t.plat; if (p.dead) break; if (p.state === 'bottom') platGoUp(p); else if (p.state === 'top') p.nextT = simTime + 1000; break; }
+    case 'button': buttonFire(t.btn, 'net'); break;
+    case 'exit': levelExit(t); break;
+  }
+}
+function netEdieIn(m) { const e = E && E.list[m.i | 0]; if (!e || !e.die || e.takedamage === false || e.dead) return; e.health = 0; e.takedamage = false; e.netDie = true; e.die(); }
 // --- Cloud: the artifact's own realtime room. A game is a named room; everything rides on each player's presence (absolute state plus a short
 // ring of numbered events), so nothing depends on send permissions and late joiners see the current state.
 async function cloudRoom() {
@@ -7215,10 +7461,10 @@ async function cloudJoin(code, host) {
   if (NET.on) netStop();
   netStatus('Joining…');
   let nr; try { nr = await lobby.join('cq-' + code); } catch (e) { netStatus('Could not join that game (' + (e && e.code || 'error') + ').', true); return; }
-  const tr = { seq: 0, ring: [], st: null, seen: new Map(), lastSt: new Map(), hostPeer: null, nr, meP: null, timer: 0, closed: false };
-  const push = () => { if (tr.closed) return; nr.presence({ h: host ? 1 : 0, st: tr.st, ev: tr.ring }).catch(() => {}); };
-  const add = (t, m, to) => { tr.ring.push([++tr.seq, t, m, to || 0]); while (tr.ring.length > 1 && JSON.stringify(tr.ring).length > 3000) tr.ring.shift(); push(); };
-  tr.bcast = m => { if (m.k === 'st') { tr.st = m; push(); } else add('c', m); };
+  const tr = { seq: 0, ring: [], st: null, ms: null, seen: new Map(), lastSt: new Map(), lastMs: new Map(), hostPeer: null, nr, meP: null, timer: 0, closed: false };
+  const push = () => { if (tr.closed) return; const room = 3700 - JSON.stringify(tr.st || 0).length - JSON.stringify(tr.ms || 0).length; while (tr.ring.length > 1 && JSON.stringify(tr.ring).length > room) tr.ring.shift(); nr.presence({ h: host ? 1 : 0, st: tr.st, ms: tr.ms, ev: tr.ring }).catch(() => {}); };
+  const add = (t, m, to) => { tr.ring.push([++tr.seq, t, m, to || 0]); push(); };
+  tr.bcast = m => { if (m.k === 'st') { tr.st = m; push(); } else if (m.k === 'mst') { tr.ms = m; push(); } else add('c', m); };
   tr.req = m => add('r', m);
   tr.authOut = (to, m) => add('a', m, to);
   tr.close = () => { tr.closed = true; try { nr.leave(); } catch (e) {} };
@@ -7241,6 +7487,7 @@ async function cloudJoin(code, host) {
       }
       tr.seen.set(id, top);
       if (pr.st && typeof pr.st === 'object' && pr.st !== tr.lastSt.get(id)) { tr.lastSt.set(id, pr.st); netIn(id, { ...pr.st, k: 'st' }); }
+      if (pr.ms && typeof pr.ms === 'object' && pr.ms !== tr.lastMs.get(id)) { tr.lastMs.set(id, pr.ms); netIn(id, { ...pr.ms, k: 'mst' }); }
     }
     for (const p of ch.left) { if (NET.auth) NET.auth.leave(p.peer); if (p.peer === tr.hostPeer && !host) netStop('The host left the game.'); }
   }, e => { if (!tr.closed) netStop('Lost the cloud connection (' + (e && e.code || 'error') + ').'); });
@@ -7267,7 +7514,7 @@ function lanSendJSON(ch, o) { if (ch && ch.readyState === 'open') try { ch.send(
 function lanHostTransport() {
   const tr = { peers: new Map(), n: 0, pending: null };
   const toGuests = (o, except, unrel) => { for (const [id, g] of tr.peers) if (id !== except) lanSendJSON(unrel ? g.du : g.dc, o); };
-  tr.bcast = m => toGuests({ t: 'c', f: NET.me, m }, null, m.k === 'st');
+  tr.bcast = m => toGuests({ t: 'c', f: NET.me, m }, null, m.k === 'st' || m.k === 'mst');
   tr.req = () => {}; // the host is the authority
   tr.authOut = (to, m) => { if (to) { const g = tr.peers.get(to); if (g) lanSendJSON(g.dc, { t: 'a', m }); } else toGuests({ t: 'a', m }); };
   tr.close = () => { for (const g of tr.peers.values()) try { g.pc.close(); } catch (e) {} tr.peers.clear(); };
@@ -7275,7 +7522,7 @@ function lanHostTransport() {
     const id = 'p' + (++tr.n), pc = new RTCPeerConnection(LAN_CFG), g = { pc, id, dc: pc.createDataChannel('rel', { ordered: true }), du: pc.createDataChannel('st', { ordered: false, maxRetransmits: 0 }) };
     const onMsg = ev => {
       let o; try { o = JSON.parse(ev.data); } catch (e) { return; } if (!o || !o.m || typeof o.m !== 'object') return;
-      if (o.t === 'c' && NC.CLIENT_KINDS.has(o.m.k)) { netIn(id, o.m); toGuests({ t: 'c', f: id, m: o.m }, id, o.m.k === 'st'); }
+      if (o.t === 'c' && NC.CLIENT_KINDS.has(o.m.k)) { netIn(id, o.m); if (o.m.k === 'mhit' && o.m.to === NET.me) return; toGuests({ t: 'c', f: id, m: o.m }, id, o.m.k === 'st' || o.m.k === 'mst'); }
       else if (o.t === 'r' && NET.auth) NET.auth.onMsg(id, o.m);
     };
     g.dc.onmessage = onMsg; g.du.onmessage = onMsg;
@@ -7291,7 +7538,7 @@ async function lanJoin(code) {
   const o = await unpackCode(code); if (o.t !== 'o') throw new Error('Paste the host\'s invite code here.');
   if (NET.on) netStop();
   const pc = new RTCPeerConnection(LAN_CFG), tr = { pc, dc: null, du: null };
-  tr.bcast = m => lanSendJSON(m.k === 'st' ? tr.du : tr.dc, { t: 'c', m });
+  tr.bcast = m => lanSendJSON(m.k === 'st' || m.k === 'mst' ? tr.du : tr.dc, { t: 'c', m });
   tr.req = m => lanSendJSON(tr.dc, { t: 'r', m });
   tr.authOut = () => {}; tr.close = () => { try { pc.close(); } catch (e) {} };
   pc.ondatachannel = ev => {
@@ -7331,7 +7578,7 @@ function refreshNetUI() {
   const m = S.netMode || 'off', on = m !== 'off';
   for (const [id, k] of [['netCloud', 'cloud'], ['netLan', 'lan'], ['netDed', 'ded']]) $(id).hidden = m !== k;
   $('netNameRow').hidden = !on;
-  for (const id of ['botCountRow', 'botSlots', 'botSkillRow', 'modeRow']) { const e = $(id); if (e) e.hidden = on; }
+  for (const id of ['botCountRow', 'botSlots', 'botSkillRow']) { const e = $(id); if (e) e.hidden = on; }
   $('botBtn').hidden = m === 'ded'; $('botBtn').textContent = on ? '⚔ Host online game' : '⚔ Start match';
   $('lanHostBox').hidden = !(m === 'lan' && NET.on && NET.host);
   if (m === 'cloud') cloudRoom().then(r => { if (!r) netStatus('Cloud play works on the hosted game page on claude.ai, for people it is shared with.', true); else renderCloudGames(r.peers()); });
@@ -7352,7 +7599,7 @@ let curScr = 'main';
 function showScreen(n) { curScr = n; if (n === 'mp') fillBotSlots(); document.querySelectorAll('#menu [data-scr]').forEach(e => { e.hidden = e.dataset.scr !== n; }); $('crumb').textContent = SCR_NAME[n]; $('backBtn').hidden = !SCR_PARENT[n]; const m = document.querySelector('#menu .panel'); if (m) m.scrollTop = 0; }
 document.querySelectorAll('#menu [data-go]').forEach(b => { b.onclick = () => showScreen(b.dataset.go); });
 $('backBtn').onclick = () => showScreen(SCR_PARENT[curScr] || 'main'); showScreen('main');
-$('campaign').onclick = () => loadMap('maps/base1.bsp');
+$('campaign').onclick = () => loadMap('maps/base1.bsp'); $('campaignX').onclick = () => loadMap('maps/xswamp.bsp'); $('campaignR').onclick = () => loadMap('maps/rmine1.bsp');
 async function addFiles(list) {
   const files = [...list].filter(f => /\.(pak|zip|pk3|pkz|bsp|wal|pcx|tga|wav|png|jpg|md2|md3|skin|shader|cfg|ogg|mp3|flac)$/i.test(f.name));
   if (!files.length) { setStatus('No usable files there — I need .pak, .zip/.pk3 or .bsp files.', true); return; }
@@ -7404,7 +7651,7 @@ async function listMaps() {
   try { if (curScr === 'mp') fillBotSlots(); } catch (e) {}
   const box = $('maps'), filt = $('mapFilter').value.trim().toLowerCase();
   const maps = [...VFS.keys()].filter(k => /^maps\/.*\.bsp$/.test(k)).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  $('mapsBox').hidden = !maps.length; $('campaign').hidden = !VFS.has('maps/base1.bsp');
+  $('mapsBox').hidden = !maps.length; $('campaign').hidden = !VFS.has('maps/base1.bsp'); $('campaignX').hidden = !VFS.has('maps/xswamp.bsp'); $('campaignR').hidden = !VFS.has('maps/rmine1.bsp');
   const groups = { sp: [], dm: [], q3: [], other: [], bad: [] };
   for (const m of maps) { const i = await mapInfo(m); groups[i.cat].push([m, i]); }
   MAPCAT = groups; fillMpMap();
@@ -7424,7 +7671,7 @@ async function listMaps() {
 }
 async function loadMap(path, spot, keepRunning) {
   if (!gl) return; lastMapPath = path;
-  setStatus('Loading ' + path + '…'); loadingMap = true; if (!keepRunning) { resetPlayer(); campaignMode = true; resetInventory(!!S.allWeapons); }
+  setStatus('Loading ' + path + '…'); loadingMap = true; if (!keepRunning) { XL.flags = 0; resetPlayer(); campaignMode = true; resetInventory(!!S.allWeapons); }
   try {
     const hd = await vfsGet(path), isQ3 = hd && hd.length > 8 && new DataView(hd.buffer, hd.byteOffset, hd.byteLength).getInt32(4, true) >= 46;
     const w = await (isQ3 ? buildQ3World : buildBSPWorld)(path, t => { setStatus(path + ' — ' + t); if (keepRunning) toast('Loading ' + w_name(path) + ' — ' + t, 8000); });
