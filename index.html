@@ -303,7 +303,7 @@ body.touch #info{left:112px}
       <div class="mpform">
         <label title="Off: a match against bots on this device. Cloud: play with people who have this game page open (hosted on claude.ai). LAN: browsers on the same network connect directly with copy-paste codes. Dedicated: connect to a server you run with node server.js.">Online <select id="netMode"><option value="off">Off</option><option value="cloud">Cloud</option><option value="lan">LAN</option><option value="ded">Dedicated</option></select></label>
         <label id="netNameRow" hidden>Your name <input id="netName" maxlength="24" autocomplete="off" spellcheck="false"></label>
-        <div id="netCloud" class="netbox" hidden><div id="cloudGames" class="netgames"></div><div class="netrow"><input id="cloudCode" maxlength="8" placeholder="game code" autocomplete="off" spellcheck="false"><button id="cloudJoinBtn">Join</button></div><p class="hint">Host below, or join an open game. Everyone with this page open on claude.ai sees the open games.</p></div>
+        <div id="netCloud" class="netbox" hidden><div id="cloudGames" class="netgames"></div><div class="netrow"><input id="cloudCode" maxlength="8" placeholder="game code" autocomplete="off" spellcheck="false"><button id="cloudJoinBtn">Join</button></div><p class="hint">Host below, or join an open game. Everyone with this page open on claude.ai sees the open games.</p><button id="cloudServer" title="This tab runs the match with the map, gamemode and limits set below, and does not play. In co-op it runs the monsters. It keeps going in a background tab; leave it open.">🖥 Run a server in this tab</button></div>
         <div id="netLan" class="netbox" hidden>
           <div id="lanHostBox" hidden><p class="hint">Hosting. For each player: make an invite, send it to them, paste their reply.</p><div class="netrow"><button id="lanInvite">Make invite</button><button id="lanCopyOffer">Copy</button></div><textarea id="lanOffer" readonly rows="2" placeholder="invite code"></textarea><textarea id="lanReply" rows="2" placeholder="paste their reply code"></textarea><button id="lanAccept">Connect player</button></div>
           <p class="hint">Joining? Paste the host's invite, then send them your reply.</p><textarea id="lanJoinCode" rows="2" placeholder="paste the host's invite code"></textarea><div class="netrow"><button id="lanJoinBtn">Make reply</button><button id="lanCopyReply">Copy</button></div><textarea id="lanMyReply" readonly rows="2" placeholder="your reply code"></textarea>
@@ -1462,7 +1462,7 @@ G.Q2 = {
   const AUTH_KINDS = new Set(['welcome', 'roster', 'item', 'frag', 'over', 'restart', 'bye', 'full', 'master']); // authority → players
 
   function createAuthority(o) { // o: { send(to|null, msg), now(), map, wset, rules: { frag, time }, max }
-    const A = { players: new Map(), items: new Map(), map: o.map, wset: o.wset, rules: { frag: num(o.rules && o.rules.frag) | 0, time: num(o.rules && o.rules.time) | 0, mode: o.rules && o.rules.mode === 'coop' ? 'coop' : 'dm', skill: Math.max(0, Math.min(2, num(o.rules && o.rules.skill, 1) | 0)) }, start: o.now(), over: false, overT: 0, hue: 0, max: o.max || 16, master: null };
+    const A = { players: new Map(), items: new Map(), map: o.map, wset: o.wset, rules: { frag: num(o.rules && o.rules.frag) | 0, time: num(o.rules && o.rules.time) | 0, mode: o.rules && o.rules.mode === 'coop' ? 'coop' : 'dm', skill: Math.max(0, Math.min(2, num(o.rules && o.rules.skill, 1) | 0)) }, start: o.now(), over: false, overT: 0, hue: 0, max: o.max || 16, master: null, server: typeof o.self === 'function' };
     const coop = () => A.rules.mode === 'coop';
     const roster = () => [...A.players].map(([id, p]) => ({ id, name: p.name, frags: p.frags, deaths: p.deaths, set: p.set, model: p.model, skin: p.skin, hue: p.hue }));
     const bc = m => o.send(null, m);
@@ -1480,7 +1480,7 @@ G.Q2 = {
       if (m.k === 'hello') {
         let p = A.players.get(from);
         if (!p) { if (A.players.size >= A.max) { o.send(from, { k: 'full' }); return; } p = { frags: 0, deaths: 0, hue: A.hue++ }; A.players.set(from, p); }
-        if (!A.master || !A.players.has(A.master)) A.master = from; // co-op: the first player in runs the monsters
+        if (A.server) A.master = o.self(); else if (!A.master || !A.players.has(A.master)) A.master = from; // co-op: the first player in runs the monsters (a server runs them itself)
         p.name = clean(m.name) || 'Player'; p.set = SETS.has(m.set) ? m.set : 'builtin'; p.model = clean(m.model, 32) || null; p.skin = clean(m.skin, 32) || null;
         const items = []; for (const [i, until] of A.items) if (until > now) items.push([i, Math.min(1e9, until - now)]);
         o.send(from, { k: 'welcome', you: from, map: A.map, spot: A.spot || '', wset: A.wset, rules: A.rules, elapsed: now - A.start, items, over: A.over, master: A.master, list: roster() });
@@ -1500,13 +1500,14 @@ G.Q2 = {
       }
       if (m.k === 'map' && from === A.master && typeof m.map === 'string' && /^[A-Za-z0-9_./-]{1,80}$/.test(m.map)) { A.map = m.map; A.spot = clean(m.spot, 40); A.items.clear(); }
     };
-    A.leave = id => { if (!A.players.delete(id)) return; bc({ k: 'bye', id }); if (A.master === id) { A.master = A.players.keys().next().value || null; bc({ k: 'master', id: A.master }); } sendRoster(); };
+    A.leave = id => { if (!A.players.delete(id)) return; bc({ k: 'bye', id }); if (A.master === id && !A.server) { A.master = A.players.keys().next().value || null; bc({ k: 'master', id: A.master }); } sendRoster(); };
     A.tick = () => {
       const now = o.now();
       if (!A.over) { check(); return; }
       if (now - A.overT > 10000) { A.over = false; A.start = now; A.items.clear(); for (const p of A.players.values()) p.frags = p.deaths = 0; bc({ k: 'restart' }); sendRoster(); }
     };
     A.roster = roster;
+    A.serverWelcome = () => ({ k: 'welcome', you: o.self(), map: A.map, spot: A.spot || '', wset: A.wset, rules: A.rules, elapsed: o.now() - A.start, items: [], over: A.over, master: A.master = o.self(), list: roster() });
     return A;
   }
   const NetCore = { createAuthority, clean, num, CLIENT_KINDS, REQ_KINDS, AUTH_KINDS, PORT: 27960 };
@@ -3717,7 +3718,7 @@ const canHurt = () => BOT.on || S.hurt === 'always' || (S.hurt === 'monsters' &&
 function playerBox(o) { o = o || ps.origin.map(v => v / 8); return { mins: [o[0] + pm.mins[0], o[1] + pm.mins[1], o[2] + pm.mins[2]], maxs: [o[0] + pm.maxs[0], o[1] + pm.maxs[1], o[2] + pm.maxs[2]] }; }
 function playerCenter() { const o = ps.origin.map(v => v / 8); return [o[0], o[1], o[2] + (pm.mins[2] + pm.maxs[2]) / 2]; }
 function damagePlayer(dmg, from, selfInflicted) {
-  if (NETGHOST) return;
+  if (NETGHOST || NET.server) return;
   if (PL.dead || ps.noclip || PL.god || !canHurt() || dmg <= 0) return;
   if (PL.invul > simTime) { if (simTime > PL.painT) { PL.painT = simTime + 500; play('protect', .7); } return; }
   dmg = Math.max(1, Math.trunc(dmg));
@@ -3900,6 +3901,7 @@ function setupItem(e, cm) {
   E.items.push(e);
 }
 function touchItems() {
+  if (NET.server) return;
   if (PL.dead || ps.noclip) return;
   const pb = playerBox();
   for (const e of E.items) {
@@ -4039,22 +4041,67 @@ const MON = {
   monster_kamikaze: ms('flyer', { skin: 2, hp: 50, gib: -40, mass: 100, run: 320, fly: 48, melee: 50, snd: SS('flyer', ['flysght1.wav', 'flypain1.wav', 'flydeth1.wav', 'flysrch1.wav', 'flyatck3.wav', 0, 'flyatck1.wav']) })
 };
 const MM = {}; // loaded monster models by dir
-const FAKE_ANIMS = (() => { const r = n => Array.from({ length: n }, (_, i) => i); return { stand: [r(10)], walk: [r(8)], run: [r(6)], attack: [r(9)], melee: [r(8)], pain: [r(4)], death: [r(8)], duck: [r(5)] }; })();
-function classifyAnims(md) {
-  const o = { stand: [], walk: [], run: [], attack: [], melee: [], pain: [], death: [], duck: [] };
+const FAKE_ANIMS = (() => { const r = n => Array.from({ length: n }, (_, i) => i); return { stand: [r(10)], walk: [r(8)], run: [r(6)], attack: [r(9)], att: [r(9)], att2: [r(9)], melee: [r(8)], pain: [r(4)], death: [r(8)], duck: [r(5)], fidget: [] }; })();
+// Which frame groups each Quake II monster plays for what, after the frame names in the game's m_*.h tables (stand1 = FRAME_stand101..,
+// attak2 = FRAME_attak201.., and so on). att is the monster's main ranged attack, att2 its second one, so the gunner fires its chaingun
+// with the chaingun animation and lobs grenades with the grenade one. Anything not listed falls back to reading the frame names.
+const ANIMT = {
+  soldier: { att: ['attak1', 'attak2'], run: ['run'], walk: ['walk1'], stand: ['stand1'], fidget: ['stand3'], pain: ['pain1', 'pain2', 'pain3'], duck: ['duck'], death: ['death1', 'death2', 'death3', 'death4', 'death5', 'death6'] },
+  infantry: { att: ['attak1'], melee: ['attak2'], run: ['run'], walk: ['walk'], stand: ['stand'], fidget: ['fidget'], pain: ['pain1', 'pain2'], duck: ['duck'], death: ['death1', 'death2', 'death3'] },
+  gunner: { att: ['attak2'], att2: ['attak1'], run: ['run'], walk: ['walk'], stand: ['stand'], fidget: ['fidget'], pain: ['pain1', 'pain2', 'pain3'], duck: ['duck'], death: ['death'] },
+  berserk: { melee: ['att_c', 'att_a'], run: ['run'], walk: ['walkc'], stand: ['stand'], fidget: ['standb'], pain: ['pain', 'painb'], duck: ['duck'], death: ['death', 'deathc'] },
+  gladiatr: { att: ['attack'], melee: ['melee'], run: ['run'], walk: ['walk'], stand: ['stand'], pain: ['pain'], death: ['death'] },
+  tank: { att: ['attak1'], att2: ['attak3'], run: ['walk'], walk: ['walk'], stand: ['stand'], pain: ['pain1', 'pain2', 'pain3'], death: ['death1'] },
+  bitch: { att: ['attak1'], melee: ['attak2'], run: ['run'], walk: ['walk'], stand: ['stand1'], fidget: ['stand2'], pain: ['pain1', 'pain2', 'pain3'], duck: ['duck'], death: ['death1', 'death2'] },
+  bitch2: { att: ['attak1'], melee: ['attak2'], run: ['run'], walk: ['walk'], stand: ['stand1'], fidget: ['stand2'], pain: ['pain1', 'pain2', 'pain3'], duck: ['duck'], death: ['death1', 'death2'] },
+  medic: { att: ['attack'], run: ['run'], walk: ['walk'], stand: ['wait'], pain: ['paina', 'painb', 'pain'], duck: ['duck'], death: ['death'] },
+  mutant: { melee: ['attack'], run: ['run'], walk: ['walk'], stand: ['stand1'], fidget: ['stand2', 'stand3', 'stand4', 'stand5'], pain: ['pain1', 'pain2', 'pain3'], death: ['death1', 'death2'] },
+  parasite: { att: ['drain'], run: ['run'], walk: ['walk'], stand: ['stand'], pain: ['pain1'], death: ['death1'] },
+  flyer: { att: ['attak1'], melee: ['attak2'], run: ['stand'], walk: ['stand'], stand: ['stand'], pain: ['pain1', 'pain2', 'pain3'], death: ['death'] },
+  float: { att: ['attak1'], melee: ['attak2', 'attak3'], run: ['stand1'], walk: ['stand1'], stand: ['stand1'], fidget: ['stand2'], pain: ['pain1', 'pain2', 'pain3'], death: ['death'] },
+  hover: { att: ['attak1'], run: ['forwrd'], walk: ['forwrd'], stand: ['stand'], pain: ['pain1', 'pain2', 'pain3'], death: ['death1', 'death'] },
+  brain: { melee: ['attak1', 'attak2'], run: ['walk1'], walk: ['walk1'], stand: ['stand'], pain: ['pain1', 'pain2', 'pain3'], duck: ['duck'], death: ['death1', 'death2'] },
+  flipper: { melee: ['flpbit'], run: ['flpver'], walk: ['flphor'], stand: ['flphor'], pain: ['flppn1', 'flppn2'], death: ['flpdth'] },
+  boss1: { att: ['attak1'], att2: ['attak2'], run: ['forwrd'], walk: ['forwrd'], stand: ['stand'], pain: ['pain1', 'pain2', 'pain3'], death: ['death'] },
+  boss2: { att: ['attack'], run: ['walk'], walk: ['walk'], stand: ['stand'], pain: ['pain'], death: ['death'] },
+  'boss3/jorg': { att: ['attak1'], att2: ['attak2'], run: ['walk'], walk: ['walk'], stand: ['stand'], pain: ['pain1', 'pain2', 'pain3'], death: ['death'] },
+  'boss3/rider': { att: ['attak1'], att2: ['attak3'], run: ['walk'], walk: ['walk'], stand: ['stand'], pain: ['pain1', 'pain4', 'pain5'], death: ['death'] },
+  insane: { run: ['walk'], walk: ['walk'], stand: ['stand'], pain: ['stand'], death: ['stand'] },
+  gekk: { att: ['spit'], melee: ['clawa', 'clawb'], run: ['run'], walk: ['walk'], stand: ['stand'], fidget: ['idle'], pain: ['pain'], duck: ['duck'], death: ['death'] },
+  stalker: { att: ['shoot'], melee: ['attack'], run: ['run'], walk: ['walk'], stand: ['idle'], pain: ['pain'], death: ['death'] }
+};
+const LOOPCATS = new Set(['stand', 'walk', 'run']);
+function classifyAnims(md, dir) {
+  const o = { stand: [], walk: [], run: [], attack: [], melee: [], pain: [], death: [], duck: [], fidget: [] }, keyOf = new Map();
   for (const [name, fr] of Object.entries(md.anims)) {
-    const n = name.toLowerCase();
+    const n = name.toLowerCase(); keyOf.set(fr, n);
     if (/^(death|die|dead)/.test(n)) o.death.push(fr); else if (/^pain/.test(n)) o.pain.push(fr); else if (/^(duck|dodge)/.test(n)) o.duck.push(fr);
     else if (/(melee|slash|swing|punch|claw|smash|bite|drain|tent|stab|swipe|hit)/.test(n)) o.melee.push(fr);
-    else if (/^(att|atk|attack|shoot|fire|blast|rail|rock|grn|chain|burst|spin)/.test(n)) o.attack.push(fr);
+    else if (/^(att|atk|attack|shoot|fire|blast|rail|rock|grn|chain|burst|spin|spit|throw|launch|missile|laser|gun)/.test(n)) o.attack.push(fr);
     else if (/^run/.test(n)) o.run.push(fr); else if (/^walk/.test(n)) o.walk.push(fr);
-    else if (/^(stand|idle|stnd|fly|hover|swim|bank|frame)/.test(n)) o.stand.push(fr);
+    else if (/^(fidget)/.test(n)) o.fidget.push(fr);
+    else if (/^(stand|idle|stnd|fly|hover|swim|bank|frame|wait)/.test(n)) o.stand.push(fr);
   }
+  // a looping action plays its main cycle: "run" before "runs" (the start), "stand1" before "stand3" (a fidget), the longest otherwise
+  const rank = fr => { const n = keyOf.get(fr) || '', m = /^([a-z_]+?)(\d*)$/.exec(n) || [n, n, '']; const extra = /(s|start|stop|end|b|c)$/.test(m[1]) && !/^(stand|walk|run|wait)$/.test(m[1]) ? 1 : 0; return [extra, m[2] ? +m[2] : 0, -fr.length]; };
+  const cmp = (a, b) => { const x = rank(a), y = rank(b); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] - y[i]; return 0; };
+  for (const k of ['stand', 'walk', 'run']) o[k].sort(cmp);
+  if (o.stand.length > 1 && !o.fidget.length) o.fidget = o.stand.slice(1).filter(f => f.length >= 6);
   const first = Object.values(md.anims)[0] || [0];
   if (!o.stand.length) o.stand.push(first); if (!o.run.length) o.run = o.walk.length ? o.walk : o.stand; if (!o.walk.length) o.walk = o.run;
   if (!o.attack.length) o.attack = o.melee.length ? o.melee : o.run; if (!o.melee.length) o.melee = o.attack; if (!o.pain.length) o.pain = [o.stand[0].slice(0, 3)];
   if (!o.death.length) o.death = [[o.stand[0][0]]];
-  o.stand.sort((a, b) => b.length - a.length);
+  o.att = o.attack; o.att2 = o.attack;
+  const T = ANIMT[dir]; // the monster's own table wins wherever its frame groups are in the model
+  if (T) {
+    const names = Object.keys(md.anims).map(n => [n.toLowerCase(), md.anims[n]]);
+    const find = keys => { const out = []; for (const k of keys) { const ex = names.find(([n]) => n === k); if (ex) { out.push(ex[1]); continue; } for (const [n, fr] of names) if (n.startsWith(k) && /^\d*$/.test(n.slice(k.length))) out.push(fr); } return out; };
+    for (const [cat, keys] of Object.entries(T)) { const got = find(keys); if (got.length) o[cat] = got; }
+    if (T.att && !T.att2) o.att2 = o.att;
+    if (T.melee && !T.att) { o.att = o.att2 = o.melee; }
+    if (T.att && !T.melee) o.melee = o.att;
+  }
+  o.attack = o.att;
   return o;
 }
 async function loadMonsterModels() {
@@ -4064,7 +4111,7 @@ async function loadMonsterModels() {
     if (MM[dir] !== undefined) continue; MM[dir] = null;
     const path = 'models/monsters/' + dir + '/tris.md2', m = await getMD2(path); if (!m) continue;
     const skins = []; for (const s of m.skins) skins.push(await getSkin(mainCtx, s));
-    MM[dir] = { m, inst: getInst(mainCtx, path, m), skins, cats: classifyAnims(m) };
+    MM[dir] = { m, inst: getInst(mainCtx, path, m), skins, cats: classifyAnims(m, dir) };
   }
   for (const d of E.decor) if (!(d.path in IM)) { IM[d.path] = null; IM[d.path] = await loadSimple(mainCtx, d.path); }
   for (const k of ['gib_meat', 'gib_bone', 'gib_head']) if (!PM[k]) PM[k] = await loadSimple(mainCtx, 'models/objects/gibs/' + { gib_meat: 'sm_meat', gib_bone: 'bone', gib_head: 'head2' }[k] + '/tris.md2');
@@ -4101,13 +4148,18 @@ function setupMonster(e, cm) {
 }
 function updateBox(e) { for (let i = 0; i < 3; i++) { e.box.mins[i] = e.o[i] + e.mmins[i]; e.box.maxs[i] = e.o[i] + e.mmaxs[i]; } }
 const catsOf = m => (MM[m.mon.dir] && MM[m.mon.dir].cats) || FAKE_ANIMS;
-function setAnim(m, cat, loop) {
-  const lists = catsOf(m)[cat] || catsOf(m).stand, list = lists[Math.floor(Math.random() * lists.length)];
-  m.cat = cat; m.list = list; m.ai = 0; m.loop = !!loop; m.done = false; m.oldFrame = m.frame === undefined ? list[0] : m.frame; m.frame = list[0];
+function setAnim(m, cat, loop, li) { // loops play the main cycle; one-off actions pick a variant (li, when another machine already picked)
+  const C = catsOf(m), lists = C[cat] && C[cat].length ? C[cat] : C.stand;
+  const k = li !== undefined && li >= 0 && li < lists.length ? li : LOOPCATS.has(cat) ? 0 : Math.floor(Math.random() * lists.length), list = lists[k];
+  m.cat = cat; m.li = k; if (!LOOPCATS.has(cat)) m.aseq = ((m.aseq | 0) + 1) & 255; m.list = list; m.ai = 0; m.loop = !!loop; m.done = false; m.fid = false; m.oldFrame = m.frame === undefined ? list[0] : m.frame; m.frame = list[0];
 }
 function advanceAnim(m) {
   m.oldFrame = m.frame;
-  if (m.ai < m.list.length - 1) m.ai++; else if (m.loop) m.ai = 0; else m.done = true;
+  if (m.ai < m.list.length - 1) m.ai++;
+  else if (m.loop) {
+    m.ai = 0;
+    if (m.cat === 'stand') { const C = catsOf(m); if (m.fid) { m.fid = false; m.list = C.stand[0]; } else if (C.fidget && C.fidget.length && Math.random() < .2) { m.fid = true; m.list = C.fidget[Math.floor(Math.random() * C.fidget.length)]; } }
+  } else m.done = true;
   m.frame = m.list[m.ai];
 }
 const monSnd = (m, k) => m.mon.snd && m.mon.snd[k];
@@ -4224,7 +4276,7 @@ function monsterFire(m, spec, P) {
 }
 function startAttack(m, kind, P) {
   m.act = kind === 'melee' ? 'melee' : 'attack'; m.spec = kind === 'melee' ? null : m.mon[kind]; m.fired = false; m.burst = 0; m.aimP = P.slice();
-  setAnim(m, kind === 'melee' ? 'melee' : 'attack', false);
+  setAnim(m, kind === 'melee' ? 'melee' : kind === 'att2' ? 'att2' : 'att', false);
 }
 function attackStep(m, P, d) {
   changeYaw(m, yawTo(m.o, P), 40);
@@ -4245,11 +4297,11 @@ function monsterThink(m) {
   if (m.dead) return;
   if (m.bot) { botThink(m); return; }
   let P = playerCenter(); m.tgtBot = null;
-  if (BOT.on && BOT.mode === 'coop') { let bd = d3(m.o, P) * .8; for (const b of BOT.bots) if (!b.dead) { const bp = [b.o[0], b.o[1], b.o[2] + 4], dd = d3(m.o, bp); if (dd < bd && dd < 800 && canSee(m, bp)) { P = bp; bd = dd; m.tgtBot = b; } } }
+  if (BOT.on && BOT.mode === 'coop') { let bd = NET.server ? 1e9 : d3(m.o, P) * .8; for (const b of BOT.bots) if (!b.dead) { const bp = [b.o[0], b.o[1], b.o[2] + 4], dd = d3(m.o, bp); if (dd < bd && dd < 800 && canSee(m, bp)) { P = bp; bd = dd; m.tgtBot = b; } } }
   const def = m.mon, d = Math.hypot(P[0] - m.o[0], P[1] - m.o[1], P[2] - m.o[2]);
   if (m.act === 'pain') { if (m.done) { m.act = null; setAnim(m, m.enemy ? 'run' : 'stand', true); } return; }
   if (m.act === 'attack' || m.act === 'melee') { attackStep(m, P, d); if (m.done) { m.act = null; setAnim(m, 'run', true); } return; }
-  const alive = !PL.dead || !!m.tgtBot;
+  const alive = (!PL.dead && !NET.server) || !!m.tgtBot;
   const vis = alive && canSee(m, P);
   if (!m.enemy && alive && !def.passive) {
     if (vis && d < 1000 && (d < 80 || infront(m, P) || (d < 500 && simTime - noiseT < 1000))) wake(m);
@@ -7010,9 +7062,22 @@ function crossWater(a, b, s) { const ia = Q.pointContents(a) & Q.MASK_WATER, ib 
 
 // ---------- main loop ----------
 let last = performance.now(), acc = 0, fpsN = 0, fpsT = 0, fps = 0, hudT = 0;
+// A tab running a cloud server keeps simulating when hidden: browsers stop animation frames in background tabs and slow their timers, but
+// not messages from a worker, so a tiny worker paces the match while nobody is looking at it.
+let srvW = null, srvLast = 0;
+function srvTicker(on) {
+  if (!on) { if (srvW) { srvW.terminate(); srvW = null; } return; }
+  if (srvW) return;
+  try { srvW = new Worker(URL.createObjectURL(new Blob(['setInterval(()=>postMessage(0),16)'], { type: 'text/javascript' }))); } catch (e) { srvW = null; toast('Keep this tab visible: this browser would pause the server in the background.', 6000); return; }
+  srvW.onmessage = () => {
+    if (!NET.server || !document.hidden || !world) return;
+    const now = performance.now(), dt = Math.min(250, now - (srvLast || now)); srvLast = now; last = now; realTime += dt;
+    acc += dt; let n = 0; while (acc >= S.tick && n < 40) { acc -= S.tick; tick(S.tick); n++; } if (n >= 40) acc = 0;
+  };
+}
 function frame(now) {
-  const dt = Math.min(0.25, (now - last) / 1000); last = now; realTime += dt * 1000;
-  if (running && world && !CON.open) {
+  const dt = Math.min(0.25, (now - last) / 1000); last = now; srvLast = now; realTime += dt * 1000;
+  if ((running || NET.server) && world && !CON.open) {
     acc += dt * 1000; let n = 0;
     while (acc >= S.tick && n < 40) { acc -= S.tick; tick(S.tick); n++; }
     if (n >= 40) acc = 0;
@@ -7023,7 +7088,7 @@ function frame(now) {
     if (Math.random() < dt * .35) { const a = (yaw + 60 + Math.random() * 120) * Math.PI / 180, r = 500 + Math.random() * 900; fxExplosion([attractPos[0] + Math.cos(a) * r, attractPos[1] + Math.sin(a) * r, attractPos[2] - 20], [0, 0, 1], Math.random() < .5 ? 'rocket' : 'grenade'); }
     updateFx(dt);
   }
-  if (running && !CON.open) { updateFx(dt); updateRagdolls(dt); }
+  if ((running || NET.server) && !CON.open) { updateFx(dt); updateRagdolls(dt); }
   if (gl) { try { render(running ? acc / S.tick : 1, dt); if (!menu.hidden) renderPreview(); } catch (e) { console.error(e); } }
   fpsN++; fpsT += dt; if (fpsT >= 0.5) { fps = Math.round(fpsN / fpsT); fpsN = 0; fpsT = 0; }
   hudT += dt; if (hudT > 0.05 && world) { hudT = 0; updateHud(); }
@@ -7152,7 +7217,8 @@ function resetPlayer() { PL.dead = false; PL.health = 100; PL.maxHealth = 100; P
 $('resume').onclick = () => startGame();
 $('botBtn').onclick = () => { if ((S.netMode || 'off') !== 'off') { netHostOnline(); return; } if (NET.on) netStop(); startBotMatch(+$('botCount').value, $('mpMap').value, $('matchMode').value, { frag: +$('mpFrag').value, time: +$('mpTime').value }); };
 { const nm = $('netMode'); nm.value = S.netMode || 'off'; nm.onchange = () => { S.netMode = nm.value; saveS(); refreshNetUI(); }; const nn = $('netName'); if (!S.netName) S.netName = 'Player' + (100 + Math.random() * 900 | 0); nn.value = S.netName; nn.onchange = () => { S.netName = NC.clean(nn.value) || 'Player'; nn.value = S.netName; saveS(); };
-  $('cloudJoinBtn').onclick = () => cloudJoin($('cloudCode').value, false); $('netLeave').onclick = () => { netStop(); if (BOT.on) { BOT.on = false; } };
+  $('cloudJoinBtn').onclick = () => cloudJoin($('cloudCode').value, false);
+  $('cloudServer').onclick = () => { if (NET.on) netStop(); const code = Math.random().toString(36).slice(2, 7).replace(/[^a-z0-9]/g, 'x').padEnd(5, '7'); cloudJoin(code, true, true); }; $('netLeave').onclick = () => { netStop(); if (BOT.on) { BOT.on = false; } };
   $('lanInvite').onclick = async () => { try { if (!NET.on || !NET.host || NET.mode !== 'lan') { netStatus('Host the LAN game first.', true); return; } $('lanOffer').value = 'Making invite…'; $('lanOffer').value = await NET.tr.invite(); netStatus('Send this invite to one player; paste their reply below.'); } catch (e) { netStatus(e.message, true); } };
   $('lanAccept').onclick = async () => { try { await NET.tr.accept($('lanReply').value); $('lanReply').value = ''; netStatus('Connecting the player…'); } catch (e) { netStatus(e.message, true); } };
   $('lanJoinBtn').onclick = async () => { try { if (typeof RTCPeerConnection !== 'function') throw new Error('This browser has no WebRTC.'); $('lanMyReply').value = 'Making reply…'; $('lanMyReply').value = await lanJoin($('lanJoinCode').value); netStatus('Send this reply to the host. The game starts when they paste it.'); } catch (e) { netStatus(e.message, true); } };
@@ -7167,7 +7233,7 @@ $('botSkill').value = String(S.skill); $('botSkill').onchange = () => { S.skill 
 // whoever shoots decides whether they hit, and the one hit takes the damage. The match itself (frags, item pickups, limits, restarts) is kept
 // by one authority (netcore.js): the host's browser, or the dedicated server. Remote players are bot entities driven by those reports.
 const NC = window.NetCore;
-const NET = { coop: false, master: false, masterId: null, prevSkill: null, mhits: new Map(), mT: 0, on: false, mode: 'off', me: null, host: false, auth: null, tr: null, roster: [], ents: new Map(), lastAtk: null, stT: 0, fx: null, fxT: 0, hits: new Map(), pend: null, prevWset: null, starting: false, authT: 0, code: '' };
+const NET = { server: false, coop: false, master: false, masterId: null, prevSkill: null, mhits: new Map(), mT: 0, on: false, mode: 'off', me: null, host: false, auth: null, tr: null, roster: [], ents: new Map(), lastAtk: null, stT: 0, fx: null, fxT: 0, hits: new Map(), pend: null, prevWset: null, starting: false, authT: 0, code: '' };
 let NETCAP = null, NETGHOST = false;
 const nr1 = x => Math.round(x * 10) / 10;
 const finite = a => Array.isArray(a) && a.every(x => typeof x === 'number' && isFinite(x));
@@ -7237,7 +7303,7 @@ function netRoster(list) {
   const me = NET.roster.find(r => r.id === NET.me); if (me) { BOT.frags = NC.num(me.frags) | 0; BOT.deaths = NC.num(me.deaths) | 0; }
   for (const r of NET.roster) { const e = NET.ents.get(r.id); if (e) { e.frags = NC.num(r.frags) | 0; e.deaths = NC.num(r.deaths) | 0; e.name = NC.clean(r.name) || 'Player'; } }
   for (const id of [...NET.ents.keys()]) if (!NET.roster.some(r => r.id === id)) netDespawn(id);
-  if (NET.host) { const n = NET.roster.length; netStatus(`Hosting${NET.code ? ' — code ' + NET.code : ''} · ${n} player${n === 1 ? '' : 's'}`); if (NET.mode === 'cloud' && NET.lobby) NET.lobby.presence({ g: { c: NET.code, n: NC.clean(S.netName) || 'Player', m: w_name(lastMapPath || 'test'), p: n } }).catch(() => {}); }
+  if (NET.host) { const n = NET.roster.length; netStatus(`${NET.server ? 'Server running' : 'Hosting'}${NET.code ? ' — code ' + NET.code : ''} · ${n} player${n === 1 ? '' : 's'}`); if (NET.server) setStatus(`Cloud server ${NET.code} · ${n} player${n === 1 ? '' : 's'} · ${NET.coop ? 'co-op' : 'deathmatch'} on ${w_name(lastMapPath || 'test')}`); if (NET.mode === 'cloud' && NET.lobby) NET.lobby.presence({ g: { c: NET.code, n: NC.clean(S.netName) || 'Player', m: w_name(lastMapPath || 'test'), p: n, s: NET.server ? 1 : 0, co: NET.coop ? 1 : 0 } }).catch(() => {}); }
 }
 function netSpawn(r) {
   if (!world || !E || !BOT.on) return null;
@@ -7301,7 +7367,7 @@ function netHitIn(from, m) {
 function netDied() { const a = NET.lastAtk, by = a && simTime - a.t < 5000 ? a.id : null; NET.lastAtk = null; netOut({ k: 'died', by }); }
 function netPickup(e) { if (!e.respawnAt) return; netOut({ k: 'pickup', i: E.items.indexOf(e), r: Math.round(e.respawnAt - simTime) }); }
 // what a shot looked like, captured while the weapon fires and replayed by everyone else (sounds, beams, impacts, projectiles that do no damage)
-function netCapBegin() { if (!NET.on) return null; return (NETCAP = { n: projs.length, s: [], b: [], i: [] }); }
+function netCapBegin() { if (!NET.on || NET.server) return null; return (NETCAP = { n: projs.length, s: [], b: [], i: [] }); }
 function netCapEnd(c) {
   NETCAP = null; if (!c) return;
   const P = projs.slice(c.n).filter(p => !p.owner && !p.ghost).slice(0, 16).map(p => [p.type, p.q3 ? 1 : 0, ...p.p.map(nr1), ...p.v.map(Math.round), Math.round(Math.min(p.life, 60000)), p.radius | 0, p.hand ? 1 : 0]);
@@ -7330,26 +7396,27 @@ function netTick() {
   if (NET.auth && realTime - NET.authT > 500) { NET.authT = realTime; NET.auth.tick(); }
   if (!world || !BOT.on || BOT.pending) return;
   if (realTime - NET.stT >= 50) {
-    NET.stT = realTime; const o = ps.origin.map(v => v / 8), v = ps.velocity.map(v => v / 8);
-    netOut({ k: 'st', o: o.map(nr1), v: v.map(Math.round), y: nr1(yaw), p: nr1(pitch), a: PL.dead ? 0 : 1, w2: W.cur, w3: W3.cur, q: PL.quad > simTime ? 1 : 0, i: PL.invul > simTime ? 1 : 0, lg: lgBeamSeg() ? 1 : 0 });
+    NET.stT = realTime; if (NET.server) { ps.noclip = true; } else { const o = ps.origin.map(v => v / 8), v = ps.velocity.map(v => v / 8);
+    netOut({ k: 'st', o: o.map(nr1), v: v.map(Math.round), y: nr1(yaw), p: nr1(pitch), a: PL.dead ? 0 : 1, w2: W.cur, w3: W3.cur, q: PL.quad > simTime ? 1 : 0, i: PL.invul > simTime ? 1 : 0, lg: lgBeamSeg() ? 1 : 0 }); }
   }
   if (NET.fx && realTime - NET.fxT >= 60) { NET.fxT = realTime; netOut({ k: 'fire', ...NET.fx }); NET.fx = null; }
   for (const [to, h] of NET.hits) netOut({ k: 'hit', to, d: Math.round(h.d), f: h.f.map(nr1) }); NET.hits.clear();
   if (NET.coop) { if (NET.master && realTime - NET.mT >= 100) { NET.mT = realTime; netMonOut(); } for (const [i, h] of NET.mhits) netOut({ k: 'mhit', to: NET.masterId, i, d: Math.round(h.d), f: h.f.map(nr1) }); NET.mhits.clear(); }
 }
 function netStart(mode, tr, host) {
+  NET.server = false;
   NET.coop = false; NET.master = false; NET.masterId = null; NET.mhits.clear(); NET.prevSkill = null;
   NET.on = true; NET.mode = mode; NET.tr = tr; NET.host = host; NET.roster = []; NET.ents.clear(); NET.pend = null; NET.fx = null; NET.hits.clear(); NET.lastAtk = null; NET.prevWset = null; NET.welcomed = false;
 }
-function netHello() { netOut({ k: 'hello', name: NC.clean(S.netName) || 'Player', set: S.pset, model: S.pset === 'q3' ? S.model3 : S.pset === 'q2' ? S.model : null, skin: S.pset === 'q3' ? S.skin3 : S.pset === 'q2' ? S.skin : null }); }
+function netHello() { if (NET.server) { netBegin(NET.auth.serverWelcome()); return; } netOut({ k: 'hello', name: NC.clean(S.netName) || 'Player', set: S.pset, model: S.pset === 'q3' ? S.model3 : S.pset === 'q2' ? S.model : null, skin: S.pset === 'q3' ? S.skin3 : S.pset === 'q2' ? S.skin : null }); }
 function netHostAuth() {
   const map = $('mpMap').value || 'test';
-  NET.auth = NC.createAuthority({ send: authSend, now: () => Date.now(), map, wset: S.wset, rules: { frag: +$('mpFrag').value, time: +$('mpTime').value, mode: $('matchMode').value === 'coop' ? 'coop' : 'dm', skill: S.skill }, max: 16 });
+  NET.auth = NC.createAuthority({ send: authSend, now: () => Date.now(), map, ...(NET.server ? { self: () => NET.me } : {}), wset: S.wset, rules: { frag: +$('mpFrag').value, time: +$('mpTime').value, mode: $('matchMode').value === 'coop' ? 'coop' : 'dm', skill: S.skill }, max: 16 });
 }
 function netStop(msg) {
   const was = NET.on; NET.on = false;
   try { NET.tr && NET.tr.close(); } catch (e) {}
-  NET.tr = null; NET.auth = null; NET.host = false; NET.me = null; NET.code = '';
+  NET.tr = null; NET.auth = null; NET.host = false; NET.me = null; NET.code = ''; if (NET.server) { NET.server = false; ps.noclip = false; srvTicker(false); }
   for (const id of [...NET.ents.keys()]) netDespawn(id); NET.roster = [];
   if (NET.prevWset !== null) { setWsetTemp(NET.prevWset); NET.prevWset = null; }
   if (NET.prevSkill !== null) { S.skill = NET.prevSkill; NET.prevSkill = null; }
@@ -7363,7 +7430,7 @@ function netStop(msg) {
 // --- online co-op: one player (the host, or the first one on a dedicated server) runs the monsters; everyone else sees puppets that follow
 // that player's reports, and sends their hits on monsters to them. Triggers, buttons, shootable things, item pickups and level changes
 // are replayed on every machine, so the level moves the same way for everyone.
-const CATS = ['stand', 'walk', 'run', 'attack', 'melee', 'pain', 'death', 'duck'], LOOPCAT = new Set(['stand', 'walk', 'run']);
+const CATS = ['stand', 'walk', 'run', 'attack', 'melee', 'pain', 'death', 'duck', 'att', 'att2', 'fidget'], LOOPCAT = LOOPCATS;
 function netSetMaster() {
   const was = NET.master; NET.master = !!NET.masterId && NET.masterId === NET.me;
   if (!NET.coop || !E) return;
@@ -7375,9 +7442,9 @@ function netMonOut() {
   if (!E || !world) return; const L = [], cap = NET.mode === 'cloud' ? 28 : 60;
   for (const m of E.monsters) {
     if (!m.nid || m.dead || m.hidden) continue;
-    const lo = m.netLast, moved = !lo || Math.abs(m.o[0] - lo[0]) + Math.abs(m.o[1] - lo[1]) + Math.abs(m.o[2] - lo[2]) > 1 || Math.abs(m.yaw - lo[3]) > 2 || m.cat !== lo[4] || realTime - (m.netT || 0) > 2500;
-    if (!moved) continue; m.netLast = [m.o[0], m.o[1], m.o[2], m.yaw, m.cat]; m.netT = realTime;
-    L.push([m.nid, nr1(m.o[0]), nr1(m.o[1]), nr1(m.o[2]), Math.round(m.yaw), Math.max(0, CATS.indexOf(m.cat))]); if (L.length >= cap) break;
+    const lo = m.netLast, moved = !lo || Math.abs(m.o[0] - lo[0]) + Math.abs(m.o[1] - lo[1]) + Math.abs(m.o[2] - lo[2]) > 1 || Math.abs(m.yaw - lo[3]) > 2 || m.cat !== lo[4] || m.aseq !== lo[5] || realTime - (m.netT || 0) > 2500;
+    if (!moved) continue; m.netLast = [m.o[0], m.o[1], m.o[2], m.yaw, m.cat, m.aseq]; m.netT = realTime;
+    L.push([m.nid, nr1(m.o[0]), nr1(m.o[1]), nr1(m.o[2]), Math.round(m.yaw), Math.max(0, CATS.indexOf(m.cat)), m.li | 0, m.aseq | 0]); if (L.length >= cap) break;
   }
   if (L.length) netOut({ k: 'mst', w: world.name, l: L });
 }
@@ -7385,7 +7452,7 @@ function netMonIn(m) {
   if (!E || !world || m.w !== world.name || !Array.isArray(m.l) || !E.byNid) return;
   for (const x of m.l.slice(0, 80)) {
     if (!finite(x) || x.length < 6) continue; const mo = E.byNid.get(x[0]); if (!mo || mo.dead || !vec3ok(x.slice(1, 4))) continue;
-    (mo.snaps || (mo.snaps = [])).push({ t: realTime, o: [x[1], x[2], x[3]], y: x[4], c: CATS[x[5] | 0] || 'stand' }); if (mo.snaps.length > 6) mo.snaps.shift();
+    (mo.snaps || (mo.snaps = [])).push({ t: realTime, o: [x[1], x[2], x[3]], y: x[4], c: CATS[x[5] | 0] || 'stand', li: x[6] | 0, q: x[7] | 0 }); if (mo.snaps.length > 6) mo.snaps.shift();
   }
 }
 function netMonStep(m) { // a puppet monster: interpolate, play the animation the master's monster is in
@@ -7396,7 +7463,7 @@ function netMonStep(m) { // a puppet monster: interpolate, play the animation th
   for (let i = 0; i + 1 < S2.length; i++) if (S2[i].t <= T && S2[i + 1].t >= T) { a = S2[i]; b = S2[i + 1]; break; }
   let k = b.t > a.t ? Math.max(0, Math.min(1, (T - a.t) / (b.t - a.t))) : 1; if (T > b.t) { a = b; k = 1; }
   m.o = [0, 1, 2].map(i => a.o[i] + (b.o[i] - a.o[i]) * k); const dy = ((b.y - a.y) % 360 + 540) % 360 - 180; m.yaw = a.y + dy * k;
-  const c = (k >= .5 ? b : a).c; if (c !== m.cat && c !== 'death') { setAnim(m, c, LOOPCAT.has(c)); m.enemy = m.enemy || c !== 'stand'; }
+  const sn = k >= .5 ? b : a, c = sn.c; if ((c !== m.cat || sn.q !== m.aseqSeen) && c !== 'death') { m.aseqSeen = sn.q; if (c !== m.cat || !LOOPCAT.has(c)) setAnim(m, c, LOOPCAT.has(c), sn.li); m.enemy = m.enemy || c !== 'stand'; }
   updateBox(m);
 }
 function netMonHitOut(m, dmg) { if (NETGHOST || m.dead) return; const h = NET.mhits.get(m.nid) || { d: 0, f: (lastHitFrom || playerCenter()).slice() }; h.d += dmg; NET.mhits.set(m.nid, h); }
@@ -7450,12 +7517,12 @@ function renderCloudGames(peers) {
   if (!games.length) { const s = document.createElement('div'); s.className = 'hint'; s.textContent = 'No open games right now. Host one, or join with a code.'; box.appendChild(s); return; }
   for (const p of games.slice(0, 12)) {
     const g = p.presence.g, row = document.createElement('div'); row.className = 'netgame';
-    const t = document.createElement('span'); t.textContent = `${NC.clean(g.n) || 'Player'}'s game · ${NC.clean(g.m, 40)} · ${NC.num(g.p, 1) | 0} playing · ${g.c}`;
+    const t = document.createElement('span'); t.textContent = `${NC.clean(g.n) || 'Player'}'s ${g.s ? 'server' : 'game'} · ${g.co ? 'co-op' : 'deathmatch'} · ${NC.clean(g.m, 40)} · ${NC.num(g.p, 1) | 0} playing · ${g.c}`;
     const b = document.createElement('button'); b.textContent = 'Join'; b.onclick = () => cloudJoin(g.c, false);
     row.append(t, b); box.appendChild(row);
   }
 }
-async function cloudJoin(code, host) {
+async function cloudJoin(code, host, server) {
   const lobby = await cloudRoom(); if (!lobby) { netStatus('Cloud play needs the hosted game page on claude.ai (signed in, shared with you).', true); return; }
   code = String(code || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8); if (code.length < 4) { netStatus('Enter the 4–8 character game code.', true); return; }
   if (NET.on) netStop();
@@ -7468,8 +7535,8 @@ async function cloudJoin(code, host) {
   tr.req = m => add('r', m);
   tr.authOut = (to, m) => add('a', m, to);
   tr.close = () => { tr.closed = true; try { nr.leave(); } catch (e) {} };
-  netStart('cloud', tr, host); NET.code = code;
-  if (host) netHostAuth();
+  netStart('cloud', tr, host); NET.code = code; NET.server = !!server;
+  if (host) netHostAuth(); if (server) srvTicker(true);
   nr.onPeers(ch => {
     if (tr.closed) return;
     for (const p of ch.peers) if (p.isMe && p.sameTab) tr.meP = p.peer;
@@ -7492,7 +7559,7 @@ async function cloudJoin(code, host) {
     for (const p of ch.left) { if (NET.auth) NET.auth.leave(p.peer); if (p.peer === tr.hostPeer && !host) netStop('The host left the game.'); }
   }, e => { if (!tr.closed) netStop('Lost the cloud connection (' + (e && e.code || 'error') + ').'); });
   if (host) {
-    lobby.presence({ g: { c: code, n: NC.clean(S.netName) || 'Player', m: w_name($('mpMap').value || 'test'), p: 1 } }).catch(() => {});
+    lobby.presence({ g: { c: code, n: NC.clean(S.netName) || 'Player', m: w_name($('mpMap').value || 'test'), p: server ? 0 : 1, s: server ? 1 : 0, co: $('matchMode').value === 'coop' ? 1 : 0 } }).catch(() => {});
   } else setTimeout(() => { if (NET.on && NET.tr === tr && !NET.welcomed) netStop('No game answered on that code.'); }, 12000);
 }
 // --- LAN: WebRTC between browsers on the same network. No server: the host makes an invite code, the guest answers with a reply code.

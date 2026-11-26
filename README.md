@@ -14,7 +14,7 @@ Press **U** (or type `unstuck`) to get out of geometry or step back along your p
 
 Play → Multiplayer → **Online**:
 
-- **Cloud** — host or join from the game page on claude.ai. Open games are listed for everyone who has the page open (it must be shared with them); you can also join by code. No server needed.
+- **Cloud** — host or join from the game page on claude.ai. Open games are listed for everyone who has the page open (it must be shared with them); you can also join by code. No server needed. **Run a server in this tab** turns a Chrome tab into a cloud server: it hosts the match with the map, gamemode and limits you set, does not play itself, runs the monsters in co-op, stays listed while players come and go, and keeps going in a background tab.
 - **LAN** — browsers on the same network connect directly (WebRTC). The host clicks *Host online game*, then *Make invite* for each player and sends them the code; the player pastes it, clicks *Make reply* and sends the reply back. No internet needed.
 - **Dedicated** — run a server and connect to it:
 
