@@ -40,6 +40,7 @@ const server = http.createServer((req, res) => {
 server.on('upgrade', (req, sock) => {
   const key = req.headers['sec-websocket-key'];
   if (!key || (req.headers.upgrade || '').toLowerCase() !== 'websocket') { sock.destroy(); return; }
+  if (req.url.split('?')[0] === '/mqtt') { mqttUpgrade(req, sock, key); return; }
   if (clients.size >= MAX) { sock.end('HTTP/1.1 503 Service Unavailable\r\n\r\n'); return; }
   const accept = crypto.createHash('sha1').update(key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
   sock.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ' + accept + '\r\n\r\n');
@@ -59,16 +60,18 @@ function drop(c) {
   auth.leave(c.id); console.log(`- ${c.id} (${clients.size} connected)`);
 }
 function readFrames(c) {
+  const dropIt = () => c.mqtt ? mqDrop(c, true) : drop(c);
   for (;;) {
     const b = c.buf; if (b.length < 2) return;
     const fin = b[0] & 0x80, op = b[0] & 0x0f, masked = b[1] & 0x80; let len = b[1] & 0x7f, o = 2;
     if (len === 126) { if (b.length < 4) return; len = b.readUInt16BE(2); o = 4; }
-    else if (len === 127) { if (b.length < 10) return; const hi = b.readUInt32BE(2); if (hi) { drop(c); return; } len = b.readUInt32BE(6); o = 10; }
-    if (!masked || len > 65536) { drop(c); return; }
+    else if (len === 127) { if (b.length < 10) return; const hi = b.readUInt32BE(2); if (hi) { dropIt(); return; } len = b.readUInt32BE(6); o = 10; }
+    if (!masked || len > 65536) { dropIt(); return; }
     if (b.length < o + 4 + len) return;
     const mask = b.slice(o, o + 4), data = Buffer.from(b.slice(o + 4, o + 4 + len)); for (let i = 0; i < len; i++) data[i] ^= mask[i & 3];
     c.buf = b.slice(o + 4 + len);
-    if (op === 0x8) { drop(c); return; }
+    if (op === 0x8) { dropIt(); return; }
+    if (op === 0x2) { onBinary(c, data); continue; }
     if (op === 0x9) { sendFrame(c, 0xA, data); continue; }
     if (op === 0xA) { c.alive = true; continue; }
     if (op === 0x1 || op === 0x0) { c.frag.push(data); if (fin) { const msg = Buffer.concat(c.frag).toString('utf8'); c.frag = []; c.alive = true; onMessage(c, msg); } }
@@ -88,7 +91,66 @@ function onMessage(c, text) {
 function sendText(c, s) { sendFrame(c, 0x1, Buffer.from(s, 'utf8')); }
 function sendFrame(c, op, data) {
   const n = data.length, head = n < 126 ? Buffer.from([0x80 | op, n]) : n < 65536 ? Buffer.from([0x80 | op, 126, n >> 8, n & 255]) : (() => { const h = Buffer.alloc(10); h[0] = 0x80 | op; h[1] = 127; h.writeUInt32BE(0, 2); h.writeUInt32BE(n, 6); return h; })();
-  try { c.sock.write(Buffer.concat([head, data])); } catch (e) { drop(c); }
+  try { c.sock.write(Buffer.concat([head, data])); } catch (e) { c.mqtt ? mqDrop(c, true) : drop(c); }
+}
+
+// ---------- relay for self-hosted Cloud games: a small MQTT 3.1.1 broker over WebSocket at /mqtt (QoS 0, retained messages, last will).
+// Point the game's Cloud → Relay field at ws://<this machine>:27960/mqtt (or wss:// behind a TLS proxy) to use it instead of public relays.
+const mq = new Set(), retained = new Map();
+const topicMatch = (f, t) => { const F = f.split('/'), T = t.split('/'); for (let i = 0; i < F.length; i++) { if (F[i] === '#') return true; if (i >= T.length) return false; if (F[i] !== '+' && F[i] !== T[i]) return false; } return F.length === T.length; };
+function mqttUpgrade(req, sock, key) {
+  if (mq.size >= 500) { sock.destroy(); return; }
+  const accept = crypto.createHash('sha1').update(key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
+  const wantsMqtt = /\bmqtt\b/.test(req.headers['sec-websocket-protocol'] || '');
+  sock.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ' + accept + '\r\n' + (wantsMqtt ? 'Sec-WebSocket-Protocol: mqtt\r\n' : '') + '\r\n');
+  sock.setNoDelay(true);
+  const c = { sock, buf: Buffer.alloc(0), mbuf: Buffer.alloc(0), frag: [], subs: new Set(), will: null, budget: 400, alive: true, mqtt: true, id: 'm' + nextId++ };
+  mq.add(c);
+  sock.on('data', d => { c.buf = Buffer.concat([c.buf, d]); if (c.buf.length > 1 << 20) { mqDrop(c, true); return; } readFrames(c); });
+  sock.on('close', () => mqDrop(c, true)); sock.on('error', () => mqDrop(c, true));
+}
+setInterval(() => { for (const c of mq) c.budget = 400; }, 1000);
+function mqDrop(c, useWill) {
+  if (!mq.has(c)) return; mq.delete(c); try { c.sock.destroy(); } catch (e) {}
+  if (useWill && c.will) mqPublish(c.will.topic, c.will.payload, c.will.retain);
+}
+function mqSend(c, bytes) { sendFrame(c, 0x2, Buffer.from(bytes)); }
+function mqPacket(h, body) { const len = []; let n = body.length; do { let d = n % 128; n = Math.floor(n / 128); if (n) d |= 128; len.push(d); } while (n); return Buffer.concat([Buffer.from([h, ...len]), body]); }
+const mqStr = s => { const b = Buffer.from(s, 'utf8'); return Buffer.concat([Buffer.from([b.length >> 8, b.length & 255]), b]); };
+function mqPublish(topic, payload, retain) {
+  if (retain) { if (payload.length) { if (retained.size < 5000 || retained.has(topic)) retained.set(topic, payload); } else retained.delete(topic); }
+  const p = mqPacket(0x30, Buffer.concat([mqStr(topic), payload]));
+  for (const o of mq) for (const f of o.subs) if (topicMatch(f, topic)) { sendFrame(o, 0x2, p); break; }
+}
+function onBinary(c, data) {
+  if (!c.mqtt) return;
+  c.mbuf = Buffer.concat([c.mbuf, data]);
+  for (;;) {
+    const b = c.mbuf; if (b.length < 2) return; let len = 0, mul = 1, i = 1, x;
+    do { if (i >= b.length) return; x = b[i++]; len += (x & 127) * mul; mul *= 128; } while ((x & 128) && i < 5);
+    if (len > 65536) { mqDrop(c, true); return; } if (b.length < i + len) return;
+    const h = b[0], body = b.slice(i, i + len); c.mbuf = b.slice(i + len);
+    if (--c.budget < 0) continue; // flood guard
+    const type = h >> 4;
+    try {
+      if (type === 1) { // CONNECT
+        let o = 2 + body.readUInt16BE(0); o += 1; const flags = body[o]; o += 3;
+        const idl = body.readUInt16BE(o); o += 2 + idl;
+        if (flags & 0x04) { const tl = body.readUInt16BE(o), t = body.slice(o + 2, o + 2 + tl).toString('utf8'); o += 2 + tl; const ml = body.readUInt16BE(o), m = body.slice(o + 2, o + 2 + ml); o += 2 + ml; c.will = { topic: t, payload: m, retain: !!(flags & 0x20) }; }
+        mqSend(c, [0x20, 2, 0, 0]);
+      } else if (type === 3) { // PUBLISH
+        const tl = body.readUInt16BE(0), topic = body.slice(2, 2 + tl).toString('utf8'), q = (h >> 1) & 3; let o = 2 + tl; let pid = 0; if (q) { pid = body.readUInt16BE(o); o += 2; }
+        if (!topic || /[#+]/.test(topic)) continue;
+        mqPublish(topic, body.slice(o), !!(h & 1)); if (q === 1) mqSend(c, [0x40, 2, pid >> 8, pid & 255]);
+      } else if (type === 8) { // SUBSCRIBE
+        const pid = body.readUInt16BE(0); let o = 2; const codes = [];
+        while (o < body.length) { const tl = body.readUInt16BE(o), f = body.slice(o + 2, o + 2 + tl).toString('utf8'); o += 3 + tl; if (c.subs.size < 50) c.subs.add(f); codes.push(0); for (const [t, p] of retained) if (topicMatch(f, t)) sendFrame(c, 0x2, mqPacket(0x31, Buffer.concat([mqStr(t), p]))); }
+        mqSend(c, [0x90, 2 + codes.length, pid >> 8, pid & 255, ...codes]);
+      } else if (type === 10) { const pid = body.readUInt16BE(0); let o = 2; while (o < body.length) { const tl = body.readUInt16BE(o); c.subs.delete(body.slice(o + 2, o + 2 + tl).toString('utf8')); o += 2 + tl; } mqSend(c, [0xb0, 2, pid >> 8, pid & 255]); }
+      else if (type === 12) mqSend(c, [0xd0, 0]);
+      else if (type === 14) { c.will = null; mqDrop(c, false); return; }
+    } catch (e) { mqDrop(c, true); return; }
+  }
 }
 
 server.listen(PORT, () => {
@@ -96,4 +158,5 @@ server.listen(PORT, () => {
   console.log(GAME === 'coop' ? `Crossover Quake dedicated server — co-op on ${MAP}, ${MODE} rules, skill ${RULES.skill}, up to ${MAX} players (the first player in runs the monsters)` : `Crossover Quake dedicated server — deathmatch on ${MAP}, ${MODE} rules, frag limit ${RULES.frag || 'none'}, time limit ${RULES.time ? RULES.time + ' min' : 'none'}, up to ${MAX} players`);
   for (const ip of ips.length ? ips : ['localhost']) console.log(`  play:   http://${ip}:${PORT}    (Multiplayer → Online: Dedicated → Connect)`);
   console.log(`  status: http://localhost:${PORT}/status`);
+  console.log(`  relay:  ws://<this machine>:${PORT}/mqtt   (Cloud → Relay, for self-hosted cloud games)`);
 });

@@ -5,7 +5,7 @@ const Q = window.Q2, $ = id => document.getElementById(id);
 const { ps, pm } = Q;
 
 // ---------- settings ----------
-const S = { netMode: 'off', netName: '', sens: 3, fov: 90, bright: 2, tick: 8, run: true, autohop: false, invert: false, vol: 0.7, music: 0.5, model: 'male', skin: 'grunt', third: false, skill: 1, hurt: 'monsters', testEnemies: true, wset: 'q2', pset: 'q2', model3: 'sarge', skin3: 'default', ragdoll: true, allWeapons: false, viewmodel: true, infAmmo: false, light: 'lightmap', pixQ: 'auto', dynRes: true };
+const S = { relayUrl: '', netMode: 'off', netName: '', sens: 3, fov: 90, bright: 2, tick: 8, run: true, autohop: false, invert: false, vol: 0.7, music: 0.5, model: 'male', skin: 'grunt', third: false, skill: 1, hurt: 'monsters', testEnemies: true, wset: 'q2', pset: 'q2', model3: 'sarge', skin3: 'default', ragdoll: true, allWeapons: false, viewmodel: true, infAmmo: false, light: 'lightmap', pixQ: 'auto', dynRes: true };
 let MAPCAT = null;
 const BOT = { mode: 'dm', fragLimit: 0, timeLimit: 0, over: false, startT: 0, roster: [], on: false, pending: 0, bots: [], frags: 0, deaths: 0, count: 3, lastShooter: null, shooterT: 0, log: [], plan: null, planT: 0 };
 const AMMO = { bullets: 0, shells: 0, grenades: 0, rockets: 0, cells: 0, slugs: 0, lightning: 0, bfgam: 0, nails: 0, mines: 0, belt: 0 };
@@ -5702,8 +5702,9 @@ $('resume').onclick = () => startGame();
 $('botBtn').onclick = () => { if ((S.netMode || 'off') !== 'off') { netHostOnline(); return; } if (NET.on) netStop(); startBotMatch(+$('botCount').value, $('mpMap').value, $('matchMode').value, { frag: +$('mpFrag').value, time: +$('mpTime').value }); };
 { const nm = $('netMode'); nm.value = S.netMode || 'off'; nm.onchange = () => { S.netMode = nm.value; saveS(); refreshNetUI(); }; const nn = $('netName'); if (!S.netName) S.netName = 'Player' + (100 + Math.random() * 900 | 0); nn.value = S.netName; nn.onchange = () => { S.netName = NC.clean(nn.value) || 'Player'; nn.value = S.netName; saveS(); };
   $('cloudJoinBtn').onclick = () => cloudJoin($('cloudCode').value, false);
+  { const ru = $('relayUrl'); ru.value = S.relayUrl || ''; ru.onchange = () => { S.relayUrl = /^wss?:\/\/\S+$/.test(ru.value.trim()) ? ru.value.trim() : ''; ru.value = S.relayUrl; saveS(); if (relayLobbyBus) { relayLobbyBus.close(); relayLobbyBus = null; relayGames.clear(); } refreshNetUI(); }; }
   $('cloudServer').onclick = () => { if (NET.on) netStop(); const code = Math.random().toString(36).slice(2, 7).replace(/[^a-z0-9]/g, 'x').padEnd(5, '7'); cloudJoin(code, true, true); }; $('netLeave').onclick = () => { netStop(); if (BOT.on) { BOT.on = false; } };
-  $('lanInvite').onclick = async () => { try { if (!NET.on || !NET.host || NET.mode !== 'lan') { netStatus('Host the LAN game first.', true); return; } $('lanOffer').value = 'Making invite…'; $('lanOffer').value = await NET.tr.invite(); netStatus('Send this invite to one player; paste their reply below.'); } catch (e) { netStatus(e.message, true); } };
+  $('lanInvite').onclick = async () => { try { if (!NET.on || !NET.host || NET.mode !== 'lan') { netStatus('Host the LAN game first.', true); return; } $('lanOffer').value = 'Making invite…'; $('lanOffer').value = (await NET.tr.invite()).code || ''; netStatus('Send this invite to one player; paste their reply below.'); } catch (e) { netStatus(e.message, true); } };
   $('lanAccept').onclick = async () => { try { await NET.tr.accept($('lanReply').value); $('lanReply').value = ''; netStatus('Connecting the player…'); } catch (e) { netStatus(e.message, true); } };
   $('lanJoinBtn').onclick = async () => { try { if (typeof RTCPeerConnection !== 'function') throw new Error('This browser has no WebRTC.'); $('lanMyReply').value = 'Making reply…'; $('lanMyReply').value = await lanJoin($('lanJoinCode').value); netStatus('Send this reply to the host. The game starts when they paste it.'); } catch (e) { netStatus(e.message, true); } };
   for (const [b, t] of [['lanCopyOffer', 'lanOffer'], ['lanCopyReply', 'lanMyReply']]) $(b).onclick = () => { const v = $(t).value; navigator.clipboard && navigator.clipboard.writeText(v).then(() => netStatus('Copied.'), () => { $(t).select(); }); };
@@ -5787,6 +5788,7 @@ function netRoster(list) {
   const me = NET.roster.find(r => r.id === NET.me); if (me) { BOT.frags = NC.num(me.frags) | 0; BOT.deaths = NC.num(me.deaths) | 0; }
   for (const r of NET.roster) { const e = NET.ents.get(r.id); if (e) { e.frags = NC.num(r.frags) | 0; e.deaths = NC.num(r.deaths) | 0; e.name = NC.clean(r.name) || 'Player'; } }
   for (const id of [...NET.ents.keys()]) if (!NET.roster.some(r => r.id === id)) netDespawn(id);
+  if (NET.host && NET.relayT) relayAdvert();
   if (NET.host) { const n = NET.roster.length; netStatus(`${NET.server ? 'Server running' : 'Hosting'}${NET.code ? ' — code ' + NET.code : ''} · ${n} player${n === 1 ? '' : 's'}`); if (NET.server) setStatus(`Cloud server ${NET.code} · ${n} player${n === 1 ? '' : 's'} · ${NET.coop ? 'co-op' : 'deathmatch'} on ${w_name(lastMapPath || 'test')}`); if (NET.mode === 'cloud' && NET.lobby) NET.lobby.presence({ g: { c: NET.code, n: NC.clean(S.netName) || 'Player', m: w_name(lastMapPath || 'test'), p: n, s: NET.server ? 1 : 0, co: NET.coop ? 1 : 0 } }).catch(() => {}); }
 }
 function netSpawn(r) {
@@ -5900,7 +5902,7 @@ function netHostAuth() {
 function netStop(msg) {
   const was = NET.on; NET.on = false;
   try { NET.tr && NET.tr.close(); } catch (e) {}
-  NET.tr = null; NET.auth = null; NET.host = false; NET.me = null; NET.code = ''; if (NET.server) { NET.server = false; ps.noclip = false; srvTicker(false); }
+  NET.tr = null; NET.auth = null; NET.host = false; NET.me = null; NET.code = ''; NET.relayT = null; if (NET.server) { NET.server = false; ps.noclip = false; srvTicker(false); }
   for (const id of [...NET.ents.keys()]) netDespawn(id); NET.roster = [];
   if (NET.prevWset !== null) { setWsetTemp(NET.prevWset); NET.prevWset = null; }
   if (NET.prevSkill !== null) { S.skill = NET.prevSkill; NET.prevSkill = null; }
@@ -5992,22 +5994,24 @@ async function cloudRoom() {
   if (NET.lobby !== undefined) return NET.lobby;
   NET.lobby = null; if (!window.claude || typeof window.claude.use !== 'function') return null;
   try { NET.lobby = await window.claude.use('room'); } catch (e) { NET.lobby = null; }
-  if (NET.lobby) NET.lobby.onPeers(ch => renderCloudGames(ch.peers), () => {});
+  if (NET.lobby) NET.lobby.onPeers(() => renderCloudGames(), () => {});
   return NET.lobby;
 }
-function renderCloudGames(peers) {
+function renderCloudGames() {
   const box = $('cloudGames'); if (!box) return; box.textContent = '';
-  const games = peers.filter(p => !p.isMe && p.presence && p.presence.g && typeof p.presence.g.c === 'string' && /^[a-z0-9]{4,8}$/.test(p.presence.g.c));
-  if (!games.length) { const s = document.createElement('div'); s.className = 'hint'; s.textContent = 'No open games right now. Host one, or join with a code.'; box.appendChild(s); return; }
-  for (const p of games.slice(0, 12)) {
-    const g = p.presence.g, row = document.createElement('div'); row.className = 'netgame';
+  const peers = NET.lobby ? NET.lobby.peers() : [], now = Date.now(), list = [];
+  for (const p of peers) if (!p.isMe && p.presence && p.presence.g && typeof p.presence.g.c === 'string' && /^[a-z0-9]{4,8}$/.test(p.presence.g.c)) list.push({ g: p.presence.g, via: 'room' });
+  for (const [c, g] of relayGames) if (/^[a-z0-9]{4,8}$/.test(c) && now - g.at < 120000 && (!g.t || Math.abs(now - g.t) < 600000) && c !== NET.code) list.push({ g, via: 'relay' });
+  if (!list.length) { const s = document.createElement('div'); s.className = 'hint'; s.textContent = 'No open games right now. Host one, or join with a code.'; box.appendChild(s); return; }
+  for (const { g, via } of list.slice(0, 16)) {
+    const row = document.createElement('div'); row.className = 'netgame';
     const t = document.createElement('span'); t.textContent = `${NC.clean(g.n) || 'Player'}'s ${g.s ? 'server' : 'game'} · ${g.co ? 'co-op' : 'deathmatch'} · ${NC.clean(g.m, 40)} · ${NC.num(g.p, 1) | 0} playing · ${g.c}`;
-    const b = document.createElement('button'); b.textContent = 'Join'; b.onclick = () => cloudJoin(g.c, false);
+    const b = document.createElement('button'); b.textContent = 'Join'; b.onclick = () => via === 'room' ? cloudJoin(g.c, false) : relayJoin(g.c);
     row.append(t, b); box.appendChild(row);
   }
 }
 async function cloudJoin(code, host, server) {
-  const lobby = await cloudRoom(); if (!lobby) { netStatus('Cloud play needs the hosted game page on claude.ai (signed in, shared with you).', true); return; }
+  const lobby = await cloudRoom(); if (!lobby) { if (host) relayHost(String(code), server); else relayJoin(code); return; }
   code = String(code || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8); if (code.length < 4) { netStatus('Enter the 4–8 character game code.', true); return; }
   if (NET.on) netStop();
   netStatus('Joining…');
@@ -6062,49 +6066,186 @@ async function unpackCode(code) {
 }
 const iceDone = pc => new Promise(res => { if (pc.iceGatheringState === 'complete') return res(); const t = setTimeout(res, 3000); pc.addEventListener('icegatheringstatechange', () => { if (pc.iceGatheringState === 'complete') { clearTimeout(t); res(); } }); });
 function lanSendJSON(ch, o) { if (ch && ch.readyState === 'open') try { ch.send(JSON.stringify(o)); } catch (e) {} }
-function lanHostTransport() {
-  const tr = { peers: new Map(), n: 0, pending: null };
+function lanHostTransport(cfg = LAN_CFG) {
+  const tr = { peers: new Map(), all: new Map(), n: 0, pending: null, extra: [] };
   const toGuests = (o, except, unrel) => { for (const [id, g] of tr.peers) if (id !== except) lanSendJSON(unrel ? g.du : g.dc, o); };
   tr.bcast = m => toGuests({ t: 'c', f: NET.me, m }, null, m.k === 'st' || m.k === 'mst');
   tr.req = () => {}; // the host is the authority
   tr.authOut = (to, m) => { if (to) { const g = tr.peers.get(to); if (g) lanSendJSON(g.dc, { t: 'a', m }); } else toGuests({ t: 'a', m }); };
-  tr.close = () => { for (const g of tr.peers.values()) try { g.pc.close(); } catch (e) {} tr.peers.clear(); };
+  tr.close = () => { for (const g of tr.all.values()) try { g.pc && g.pc.close(); } catch (e) {} tr.peers.clear(); tr.all.clear(); for (const f of tr.extra) try { f(); } catch (e) {} };
+  const openPeer = g => { if (tr.peers.get(g.id) === g) return; tr.peers.set(g.id, g); g.seen = realTime; lanSendJSON(g.dc, { t: 'id', id: g.id }); netStatus(`A player connected (${tr.peers.size} guest${tr.peers.size === 1 ? '' : 's'}).`); };
+  tr.drop = id => { const g = tr.all.get(id); if (!g) return; tr.all.delete(id); if (tr.peers.get(id) === g) { tr.peers.delete(id); if (NET.auth) NET.auth.leave(id); } try { g.pc && g.pc.close(); } catch (e) {} };
   tr.invite = async () => {
-    const id = 'p' + (++tr.n), pc = new RTCPeerConnection(LAN_CFG), g = { pc, id, dc: pc.createDataChannel('rel', { ordered: true }), du: pc.createDataChannel('st', { ordered: false, maxRetransmits: 0 }) };
-    const onMsg = ev => {
-      let o; try { o = JSON.parse(ev.data); } catch (e) { return; } if (!o || !o.m || typeof o.m !== 'object') return;
+    const id = 'p' + (++tr.n), g = { id, pc: null, dc: null, du: null, relay: null };
+    g.onMsg = ev => {
+      g.seen = realTime; let o; try { o = JSON.parse(ev.data); } catch (e) { return; } if (!o || typeof o !== 'object') return;
+      if (o.t === 'bye') { tr.drop(id); return; } if (!o.m || typeof o.m !== 'object') return;
       if (o.t === 'c' && NC.CLIENT_KINDS.has(o.m.k)) { netIn(id, o.m); if (o.m.k === 'mhit' && o.m.to === NET.me) return; toGuests({ t: 'c', f: id, m: o.m }, id, o.m.k === 'st' || o.m.k === 'mst'); }
       else if (o.t === 'r' && NET.auth) NET.auth.onMsg(id, o.m);
     };
-    g.dc.onmessage = onMsg; g.du.onmessage = onMsg;
-    g.dc.onopen = () => { tr.peers.set(id, g); lanSendJSON(g.dc, { t: 'id', id }); netStatus(`A player connected (${tr.peers.size} guest${tr.peers.size === 1 ? '' : 's'}).`); };
-    pc.onconnectionstatechange = () => { if (['failed', 'closed', 'disconnected'].includes(pc.connectionState) && tr.peers.get(id) === g) { tr.peers.delete(id); if (NET.auth) NET.auth.leave(id); } };
+    tr.all.set(id, g); tr.pending = g;
+    if (typeof RTCPeerConnection !== 'function') return { id, code: null };
+    const pc = g.pc = new RTCPeerConnection(cfg); g.dc = pc.createDataChannel('rel', { ordered: true }); g.du = pc.createDataChannel('st', { ordered: false, maxRetransmits: 0 });
+    g.dc.onmessage = g.onMsg; g.du.onmessage = g.onMsg; g.dc.onopen = () => { if (!g.relay) openPeer(g); };
+    pc.onconnectionstatechange = () => { if (!g.relay && ['failed', 'closed', 'disconnected'].includes(pc.connectionState) && tr.peers.get(id) === g) { tr.peers.delete(id); if (NET.auth) NET.auth.leave(id); } };
     await pc.setLocalDescription(await pc.createOffer()); await iceDone(pc);
-    tr.pending = g; return packCode({ t: 'o', s: pc.localDescription.sdp });
+    return { id, code: await packCode({ t: 'o', s: pc.localDescription.sdp }) };
   };
-  tr.accept = async code => { const o = await unpackCode(code); if (o.t !== 'a') throw new Error('Paste the guest\'s reply code here.'); const g = tr.pending; if (!g) throw new Error('Make an invite first.'); tr.pending = null; await g.pc.setRemoteDescription({ type: 'answer', sdp: o.s }); };
+  tr.accept = async (code, id) => {
+    const o = await unpackCode(code); if (o.t !== 'a') throw new Error('Paste the guest\'s reply code here.');
+    const g = id ? tr.all.get(id) : tr.pending; if (!g || !g.pc) throw new Error('Make an invite first.'); if (!id) tr.pending = null;
+    await g.pc.setRemoteDescription({ type: 'answer', sdp: o.s });
+  };
+  tr.connected = id => { const g = tr.all.get(id); return !!g && tr.peers.get(id) === g; };
+  tr.relaySend = new Map();
+  tr.useRelay = (id, send, force) => { const g = tr.all.get(id); if (!g || (!force && tr.connected(id))) return false; if (g.relay) return true; g.relay = { readyState: 'open', send, onmessage: g.onMsg }; g.dc = g.du = g.relay; tr.peers.delete(id); openPeer(g); return true; };
+  tr.relayIn = (id, data) => { const g = tr.all.get(id); if (!g) return; if (!g.relay && tr.relaySend.get(id)) tr.useRelay(id, tr.relaySend.get(id), true); if (g.relay) g.relay.onmessage({ data }); }; // the other side went through the relay: follow it
   return tr;
 }
-async function lanJoin(code) {
-  const o = await unpackCode(code); if (o.t !== 'o') throw new Error('Paste the host\'s invite code here.');
-  if (NET.on) netStop();
-  const pc = new RTCPeerConnection(LAN_CFG), tr = { pc, dc: null, du: null };
+function guestTransport(pc, mode) { // the joining side of LAN and Cloud games: WebRTC data channels, or the relay when those cannot connect
+  const tr = { pc, dc: null, du: null, relay: null, seen: realTime, mode };
+  tr.handler = e2 => {
+    tr.seen = realTime; let x; try { x = JSON.parse(e2.data); } catch (e) { return; }
+    if (x.t === 'id' && typeof x.id === 'string') { if (NET.me !== x.id) { NET.me = x.id; netHello(); } }
+    else if (x.t === 'a' && x.m) netIn('auth', x.m);
+    else if (x.t === 'c' && x.m && typeof x.f === 'string' && NC.CLIENT_KINDS.has(x.m.k)) netIn(x.f, x.m);
+  };
   tr.bcast = m => lanSendJSON(m.k === 'st' || m.k === 'mst' ? tr.du : tr.dc, { t: 'c', m });
   tr.req = m => lanSendJSON(tr.dc, { t: 'r', m });
-  tr.authOut = () => {}; tr.close = () => { try { pc.close(); } catch (e) {} };
-  pc.ondatachannel = ev => {
-    const ch = ev.channel; if (ch.label === 'rel') tr.dc = ch; else tr.du = ch;
-    ch.onmessage = e2 => {
-      let x; try { x = JSON.parse(e2.data); } catch (e) { return; }
-      if (x.t === 'id' && typeof x.id === 'string') { NET.me = x.id; netHello(); }
-      else if (x.t === 'a' && x.m) netIn('auth', x.m);
-      else if (x.t === 'c' && x.m && typeof x.f === 'string' && NC.CLIENT_KINDS.has(x.m.k)) netIn(x.f, x.m);
-    };
-  };
-  pc.onconnectionstatechange = () => { if (['failed', 'closed'].includes(pc.connectionState) && NET.tr === tr) netStop('Lost the connection to the host.'); };
-  netStart('lan', tr, false);
+  tr.authOut = () => {}; tr.extra = [];
+  tr.close = () => { lanSendJSON(tr.dc, { t: 'bye' }); try { pc && pc.close(); } catch (e) {} for (const f of tr.extra) try { f(); } catch (e) {} };
+  tr.useRelay = (send, force) => { if (tr.relay) return true; if (!force && tr.dc && tr.dc.readyState === 'open') return false; tr.relay = { readyState: 'open', send, onmessage: tr.handler }; tr.dc = tr.du = tr.relay; return true; };
+  tr.relayIn = data => { if (!tr.relay && tr.relaySend) tr.useRelay(tr.relaySend, true); if (tr.relay) tr.relay.onmessage({ data }); };
+  if (pc) {
+    pc.ondatachannel = ev => { const ch = ev.channel; ch.onmessage = tr.handler; if (tr.relay) return; if (ch.label === 'rel') tr.dc = ch; else tr.du = ch; };
+    pc.onconnectionstatechange = () => { if (!tr.relay && ['failed', 'closed'].includes(pc.connectionState) && NET.tr === tr) netStop('Lost the connection to the host.'); };
+  }
+  return tr;
+}
+async function lanJoin(code, cfg = LAN_CFG, mode = 'lan') {
+  const o = await unpackCode(code); if (o.t !== 'o') throw new Error('Paste the host\'s invite code here.');
+  if (NET.on) netStop();
+  const pc = new RTCPeerConnection(cfg), tr = guestTransport(pc, mode);
+  netStart(mode, tr, false);
   await pc.setRemoteDescription({ type: 'offer', sdp: o.s }); await pc.setLocalDescription(await pc.createAnswer()); await iceDone(pc);
   return packCode({ t: 'a', s: pc.localDescription.sdp });
+}
+// --- Cloud without claude.ai: self-hosted. The host's browser is the server. Games are listed, and the two sides introduce themselves,
+// through public MQTT relays over secure WebSockets (several at once, so one being down changes nothing) or your own relay (node server.js
+// has one at /mqtt). Play then goes browser to browser over WebRTC, with public STUN servers to get through home routers; when no direct
+// path can be made, the game traffic goes through the relay instead.
+const CLOUD_CFG = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' }, { urls: 'stun:global.stun.twilio.com:3478' }] };
+const PUBLIC_RELAYS = ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt', 'wss://test.mosquitto.org:8081/mqtt'];
+const RT = 'crossoverquake/v2'; // topic root
+function relayList() {
+  const own = String(S.relayUrl || '').trim(); if (/^wss?:\/\/\S+$/.test(own)) return [own];
+  const L = [...PUBLIC_RELAYS]; if (/^https?:$/.test(location.protocol) && location.port) L.unshift((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/mqtt'); // the page came from server.js
+  return L;
+}
+function mqttConnect(url, will) { // a small MQTT 3.1.1 client: QoS 0 publish and subscribe, retained messages, last will
+  return new Promise(res => {
+    let ws; try { ws = new WebSocket(url, ['mqtt']); } catch (e) { res(null); return; }
+    ws.binaryType = 'arraybuffer'; const te = new TextEncoder(), td = new TextDecoder();
+    const str = s => { const b = te.encode(s); return [b.length >> 8, b.length & 255, ...b]; };
+    const pkt = (h, body) => { const len = []; let n = body.length; do { let d = n % 128; n = Math.floor(n / 128); if (n) d |= 128; len.push(d); } while (n); return new Uint8Array([h, ...len, ...body]); };
+    const c = { url, ws, ok: false, onpub: null, pid: 1, send: p => { if (ws.readyState === 1) try { ws.send(p); } catch (e) {} } };
+    c.sub = f => c.send(pkt(0x82, [c.pid >> 8, c.pid++ & 255, ...str(f), 0]));
+    c.unsub = f => c.send(pkt(0xa2, [c.pid >> 8, c.pid++ & 255, ...str(f)]));
+    c.pub = (topic, text, retain) => c.send(pkt(0x30 | (retain ? 1 : 0), [...str(topic), ...te.encode(text)]));
+    c.close = () => { c.send(new Uint8Array([0xe0, 0])); try { ws.close(); } catch (e) {} };
+    let buf = new Uint8Array(0), ping = 0; const to = setTimeout(() => { if (!c.ok) { try { ws.close(); } catch (e) {} res(null); } }, 6000);
+    ws.onopen = () => {
+      const id = 'cq' + Math.random().toString(36).slice(2, 12), flags = 0x02 | (will ? 0x24 : 0);
+      c.send(pkt(0x10, [...str('MQTT'), 4, flags, 0, 30, ...str(id), ...(will ? [...str(will), 0, 0] : [])]));
+    };
+    ws.onmessage = ev => {
+      const d = new Uint8Array(ev.data), nb = new Uint8Array(buf.length + d.length); nb.set(buf); nb.set(d, buf.length); buf = nb;
+      for (;;) {
+        if (buf.length < 2) break; let len = 0, mul = 1, i = 1, b;
+        do { if (i >= buf.length) return; b = buf[i++]; len += (b & 127) * mul; mul *= 128; } while (b & 128);
+        if (buf.length < i + len) break;
+        const h = buf[0], body = buf.subarray(i, i + len); buf = buf.slice(i + len);
+        if ((h & 0xf0) === 0x20) { if (body[1] === 0) { c.ok = true; clearTimeout(to); ping = setInterval(() => c.send(new Uint8Array([0xc0, 0])), 20000); res(c); } else { res(null); try { ws.close(); } catch (e) {} } }
+        else if ((h & 0xf0) === 0x30) { const tl = (body[0] << 8) | body[1], topic = td.decode(body.subarray(2, 2 + tl)), q = (h >> 1) & 3, off = 2 + tl + (q ? 2 : 0); if (c.onpub) c.onpub(topic, td.decode(body.subarray(off))); }
+      }
+    };
+    ws.onerror = () => {}; ws.onclose = () => { clearInterval(ping); clearTimeout(to); c.ok = false; if (c.onclose) c.onclose(); res(null); };
+  });
+}
+async function relayBus(will) { // every reachable relay at once; messages carry an id so the copies collapse into one
+  const conns = (await Promise.all(relayList().map(u => mqttConnect(u, will)))).filter(Boolean);
+  if (!conns.length) return null;
+  const subs = new Map(), seen = new Set(), seenQ = [];
+  const bus = { conns, closed: false };
+  const deliver = (topic, text) => {
+    if (bus.closed) return; let m = null; if (text) { try { m = JSON.parse(text); } catch (e) { return; } }
+    if (m && m._i) { if (seen.has(m._i)) return; seen.add(m._i); seenQ.push(m._i); if (seenQ.length > 600) seen.delete(seenQ.shift()); }
+    for (const [f, fns] of subs) if (f === topic || (f.endsWith('/+') && topic.startsWith(f.slice(0, -1)) && !topic.slice(f.length - 1).includes('/'))) for (const fn of fns) fn(m, topic);
+  };
+  for (const c of conns) c.onpub = deliver;
+  bus.sub = (f, fn) => { if (!subs.has(f)) { subs.set(f, new Set()); for (const c of conns) c.sub(f); } subs.get(f).add(fn); };
+  bus.unsub = f => { if (subs.delete(f)) for (const c of conns) c.unsub(f); };
+  bus.pub = (topic, obj, retain) => { const text = obj === null ? '' : JSON.stringify({ ...obj, _i: Math.random().toString(36).slice(2, 11) }); for (const c of conns) c.pub(topic, text, retain); };
+  bus.close = () => { bus.closed = true; for (const c of conns) c.close(); };
+  bus.names = conns.map(c => c.url.replace(/^wss?:\/\//, '').replace(/[:/].*$/, ''));
+  return bus;
+}
+const relayGames = new Map(); let relayLobbyBus = null, relayLobbyP = null;
+async function relayLobby() { // the open-games list from the relays (kept open while the menu shows Cloud)
+  if (relayLobbyBus && !relayLobbyBus.closed) return relayLobbyBus; if (relayLobbyP) return relayLobbyP;
+  relayLobbyP = relayBus(null).then(bus => {
+    relayLobbyP = null; relayLobbyBus = bus; if (!bus) return null;
+    bus.sub(RT + '/games/+', (m, topic) => { const code = topic.slice(topic.lastIndexOf('/') + 1); if (!m || !m.c) relayGames.delete(code); else if (m.c === code) relayGames.set(code, { ...m, at: Date.now() }); renderCloudGames(); });
+    return bus;
+  });
+  return relayLobbyP;
+}
+function relayAdvert() {
+  const T = NET.relayT; if (!T || !NET.on) return;
+  T.bus.pub(RT + '/games/' + NET.code, { c: NET.code, n: NC.clean(S.netName) || 'Player', m: w_name(lastMapPath || $('mpMap').value || 'test'), p: NET.roster.length, s: NET.server ? 1 : 0, co: NET.coop || $('matchMode').value === 'coop' ? 1 : 0, t: Date.now() }, true);
+}
+async function relayHost(code, server) {
+  netStatus('Reaching the relays…');
+  const games = RT + '/games/' + code, bus = await relayBus(games);
+  if (!bus) { netStatus('Could not reach any relay. Check your connection, or set your own relay (node server.js gives one at ws://<server>:27960/mqtt).', true); return; }
+  const tr = lanHostTransport(CLOUD_CFG); netStart('cloud', tr, true); NET.me = 'h'; NET.code = code; NET.server = !!server; NET.relayT = { bus };
+  netHostAuth(); if (server) srvTicker(true);
+  const inbox = RT + '/g/' + code + '/h', gids = new Map();
+  bus.sub(inbox, async m => {
+    if (!m || !NET.on || NET.tr !== tr) return;
+    if (m.t === 'join' && typeof m.g === 'string' && /^[a-z0-9]{6,16}$/.test(m.g)) {
+      const { id, code: offer } = await tr.invite(); gids.set(id, m.g);
+      const to = RT + '/g/' + code + '/p/' + m.g, send = data => bus.pub(to, { t: 'd', m: data }); tr.relaySend.set(id, send); bus.pub(to, { t: 'offer', id, code: offer });
+      setTimeout(() => { if (NET.tr === tr && !tr.connected(id) && tr.useRelay(id, send)) netStatus(`A player joined through the relay (${tr.peers.size} guest${tr.peers.size === 1 ? '' : 's'}).`); }, offer ? 9000 : 300);
+    } else if (m.t === 'answer' && typeof m.id === 'string' && typeof m.code === 'string') { try { await tr.accept(m.code, m.id); } catch (e) {} }
+    else if (m.t === 'd' && typeof m.id === 'string' && typeof m.m === 'string') tr.relayIn(m.id, m.m);
+  });
+  const hb = setInterval(() => { relayAdvert(); for (const [id, g] of tr.all) if (g.relay && realTime - (g.seen || 0) > 20000) tr.drop(id); }, 15000);
+  tr.extra.push(() => { clearInterval(hb); bus.pub(games, null, true); setTimeout(() => bus.close(), 300); });
+  netHello(); relayAdvert(); refreshNetUI();
+  netStatus(`${server ? 'Server running' : 'Hosting'} — code ${code} · through ${bus.names.join(', ')}`);
+}
+async function relayJoin(code) {
+  code = String(code || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8); if (code.length < 4) { netStatus('Enter the 4–8 character game code.', true); return; }
+  if (NET.on) netStop();
+  netStatus('Reaching the relays…'); const bus = await relayBus(null);
+  if (!bus) { netStatus('Could not reach any relay. Check your connection, or set your own relay.', true); return; }
+  const g = Math.random().toString(36).slice(2, 12).replace(/[^a-z0-9]/g, 'z').padEnd(10, 'q'), mine = RT + '/g/' + code + '/p/' + g, host = RT + '/g/' + code + '/h';
+  let tr = null, hid = null, done = false;
+  bus.sub(mine, async m => {
+    if (!m || done && m.t !== 'd') return;
+    if (m.t === 'offer' && typeof m.id === 'string') {
+      done = true; hid = m.id;
+      if (m.code && typeof RTCPeerConnection === 'function') { try { const reply = await lanJoin(m.code, CLOUD_CFG, 'cloud'); tr = NET.tr; bus.pub(host, { t: 'answer', id: hid, code: reply }); } catch (e) { tr = null; } }
+      if (!tr) { tr = guestTransport(null, 'cloud'); netStart('cloud', tr, false); }
+      NET.code = code; tr.relaySend = data => bus.pub(host, { t: 'd', id: hid, m: data }); tr.extra.push(() => { bus.pub(host, { t: 'd', id: hid, m: JSON.stringify({ t: 'bye' }) }); setTimeout(() => bus.close(), 300); });
+      const relayNow = () => { if (NET.tr === tr && tr.useRelay(tr.relaySend, true)) { netStatus('Connected through the relay.'); lanSendJSON(tr.dc, { t: 'hi' }); } };
+      if (!m.code || !tr.pc) relayNow(); else setTimeout(() => { if (!NET.me) relayNow(); }, 9000);
+      const hb = setInterval(() => { if (NET.tr !== tr) { clearInterval(hb); return; } if (tr.relay && realTime - tr.seen > 20000) netStop('Lost the host.'); }, 5000);
+    } else if (m.t === 'd' && typeof m.m === 'string' && tr) tr.relayIn(m.m);
+  });
+  bus.pub(host, { t: 'join', g });
+  setTimeout(() => { if (!done) { bus.close(); netStatus('No game answered on that code.', true); } else if (NET.tr === tr && !NET.welcomed) netStop('Could not connect to that game.'); }, 20000);
 }
 // --- Dedicated: a WebSocket to server.js, which relays and keeps the match
 function dedConnect(url) {
@@ -6132,7 +6273,8 @@ function refreshNetUI() {
   for (const id of ['botCountRow', 'botSlots', 'botSkillRow']) { const e = $(id); if (e) e.hidden = on; }
   $('botBtn').hidden = m === 'ded'; $('botBtn').textContent = on ? '⚔ Host online game' : '⚔ Start match';
   $('lanHostBox').hidden = !(m === 'lan' && NET.on && NET.host);
-  if (m === 'cloud') cloudRoom().then(r => { if (!r) netStatus('Cloud play works on the hosted game page on claude.ai, for people it is shared with.', true); else renderCloudGames(r.peers()); });
+  if (m === 'cloud') { cloudRoom().then(() => renderCloudGames()); relayLobby().then(b => { renderCloudGames(); if (!NET.on) netStatus(b ? `Open games from ${NET.lobby ? 'claude.ai and ' : ''}relays: ${b.names.join(', ')}` : NET.lobby ? 'Using claude.ai for cloud games (no public relay reachable).' : 'Could not reach any relay. Check your connection, or set your own relay below.', !b && !NET.lobby); }); }
+  $('relayRow').hidden = m !== 'cloud';
   if (m === 'ded' && !$('dedUrl').value) $('dedUrl').value = /^https?:$/.test(location.protocol) && location.port ? (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host : 'ws://localhost:' + NC.PORT;
 }
 async function netHostOnline() {
