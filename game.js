@@ -697,6 +697,12 @@ function procTex(kind) {
     case 'reactor': fill('#10203a'); for (let y = 0; y < 128; y += 16) { const gr = g.createLinearGradient(0, y, 0, y + 16); gr.addColorStop(0, '#2b6dff'); gr.addColorStop(.5, '#9fd0ff'); gr.addColorStop(1, '#1a3d8f'); g.fillStyle = gr; g.fillRect(8, y + 3, 112, 10); } g.fillStyle = '#0a1426'; g.fillRect(0, 0, 8, 128); g.fillRect(120, 0, 8, 128); break;
     case 'sky': { const gr = g.createLinearGradient(0, 0, 128, 128); gr.addColorStop(0, '#0b1430'); gr.addColorStop(1, '#16224a'); g.fillStyle = gr; g.fillRect(0, 0, 128, 128); for (let i = 0; i < 60; i++) { g.fillStyle = `rgba(255,255,255,${.25 + rnd() * .75})`; const s = rnd() < .15 ? 2 : 1; g.fillRect(rnd() * 128 | 0, rnd() * 128 | 0, s, s); } break; }
     case 'slime': fill('#2f6a1c'); for (let i = 0; i < 70; i++) { g.fillStyle = `rgba(${120 + rnd() * 80 | 0},${200 + rnd() * 55 | 0},60,${.15 + rnd() * .3})`; g.beginPath(); g.arc(rnd() * 128, rnd() * 128, 2 + rnd() * 9, 0, 7); g.fill(); } break;
+    case 'lava': { fill('#7a1a02'); for (let i = 0; i < 90; i++) { g.fillStyle = `rgba(255,${120 + rnd() * 110 | 0},${rnd() * 40 | 0},${.25 + rnd() * .5})`; g.beginPath(); g.arc(rnd() * 128, rnd() * 128, 2 + rnd() * 10, 0, 7); g.fill(); } g.strokeStyle = 'rgba(255,230,120,.5)'; g.lineWidth = 2; for (let i = 0; i < 8; i++) { g.beginPath(); g.moveTo(rnd() * 128, rnd() * 128); g.lineTo(rnd() * 128, rnd() * 128); g.stroke(); } break; }
+    case 'rust': fill('#6b3d22'); speck(2400, .3); for (let i = 0; i < 40; i++) { g.fillStyle = `rgba(${150 + rnd() * 60 | 0},${70 + rnd() * 30 | 0},20,${.15 + rnd() * .3})`; g.fillRect(rnd() * 128, rnd() * 128, 4 + rnd() * 20, 2 + rnd() * 10); } grid(64, '#3a2112', '#8a5532'); break;
+    case 'stone': fill('#5b5852'); speck(2600, .25); speck(800, .08, 1); for (let y = 0; y < 128; y += 32) { g.fillStyle = '#3c3a36'; g.fillRect(0, y, 128, 2); for (let x = (y / 32 % 2) * 32; x < 128; x += 64) g.fillRect(x, y, 2, 32); } break;
+    case 'brick': fill('#6e3b2a'); speck(1200, .2); for (let y = 0; y < 128; y += 16) { g.fillStyle = '#3b2018'; g.fillRect(0, y, 128, 2); for (let x = (y / 16 % 2) * 16; x < 128; x += 32) g.fillRect(x, y, 2, 16); } break;
+    case 'tech': fill('#2c3540'); grid(32, '#1a2028', '#45525f'); for (let i = 0; i < 12; i++) { g.fillStyle = rnd() < .5 ? 'rgba(80,200,255,.55)' : 'rgba(255,120,60,.5)'; g.fillRect(6 + (rnd() * 4 | 0) * 32, 6 + (rnd() * 4 | 0) * 32, 6, 3); } break;
+    case 'storm': { const gr = g.createLinearGradient(0, 0, 0, 128); gr.addColorStop(0, '#1b1d2a'); gr.addColorStop(1, '#2f3345'); g.fillStyle = gr; g.fillRect(0, 0, 128, 128); for (let i = 0; i < 30; i++) { g.fillStyle = `rgba(150,160,200,${.05 + rnd() * .12})`; g.beginPath(); g.arc(rnd() * 128, rnd() * 128, 10 + rnd() * 30, 0, 7); g.fill(); } break; }
     case 'exitpad': fill('#062a16'); g.strokeStyle = '#4dff9a'; g.lineWidth = 5; for (let r = 12; r < 70; r += 16) { g.beginPath(); g.arc(64, 64, r, 0, 7); g.stroke(); } break;
     default: fill('#777');
   }
@@ -707,18 +713,18 @@ function buildDemoWorld() { return buildBrushWorld(Q.demoMap(), 'Test map', 'tes
 function buildBrushWorld(d, name, id) {
   const G = new Map(), texCache = {}, cm = Q.cmFromBrushes(d.brushes), baked = !!(d.lights && d.lights.length);
   const W = 2 / 64, L = [0.45, 0.3, 0.8]; Q.normalize(L);
-  const LIQ = { water: 1, slime: 2, lava: 3 }, FULL = { lamp: 1.8, sky: 1, exitpad: 1.5, reactor: 1.35 };
+  const LIQ = { water: 1, slime: 2, lava: 3 }, FULL = { lamp: 1.8, sky: 1, storm: .9, exitpad: 1.5, reactor: 1.35, lava: 1.5 };
   const faces = [];
   for (const br of d.brushes) { const liq = LIQ[br.mat]; for (const f of Q.brushFaces(br.planes)) { if (liq && f.n[2] < 0.9) continue; faces.push({ br, w: f.w, n: f.n, d: Q.dot(f.n, f.w[0]), full: FULL[br.mat] || 0, liq }); } }
   let lm = null; if (baked) lm = bakeBrushLight(d, cm, faces.filter(f => !f.liq));
   for (const f of faces) {
     const mat = f.br.mat; if (!texCache[mat]) texCache[mat] = makeTex(gl, procTex(mat));
-    const liq = f.liq, g = grp(G, mat, { emit: !!FULL[mat] || liq === 3, nocast: mat === 'sky', tex: texCache[mat], kind: liq ? 'trans' : 'opaque', alpha: liq === 2 ? .8 : liq ? 0.45 : 1, warp: !!liq, liquid: liq || 0 });
+    const liq = f.liq, g = grp(G, mat, { emit: !!FULL[mat] || liq === 3, nocast: mat === 'sky' || mat === 'storm', tex: texCache[mat], kind: liq && liq !== 3 ? 'trans' : 'opaque', alpha: liq === 3 ? 1 : liq === 2 ? .8 : liq ? 0.45 : 1, warp: !!liq, liquid: liq || 0 });
     const n = f.n, ax = Math.abs(n[0]), ay = Math.abs(n[1]), az = Math.abs(n[2]);
     const shade = mat === 'pad' ? 1 : (0.42 + 0.45 * Math.max(0, Q.dot(n, L)) + 0.13 * Math.max(0, n[2])) * (n[2] < -0.5 ? 0.6 : 1);
     addPoly(g, f.w.map(p => {
       let u, v; if (az >= ax && az >= ay) { u = p[0]; v = -p[1]; } else if (ax >= ay) { u = p[1]; v = -p[2]; } else { u = p[0]; v = -p[2]; }
-      if (liq) return [p[0], p[1], p[2], u / 128, v / 128, W, W, liq === 2 ? .8 : 0.55];
+      if (liq) return [p[0], p[1], p[2], u / 128, v / 128, W, W, liq === 3 ? 1.2 : liq === 2 ? .8 : 0.55];
       if (f.lmUV) { const t = f.lmUV(p); return [p[0], p[1], p[2], u / 128, v / 128, t[0], t[1], 1]; }
       return [p[0], p[1], p[2], u / 128, v / 128, W, W, shade * 0.5];
     }));
@@ -728,7 +734,7 @@ function buildBrushWorld(d, name, id) {
   w.textures = []; w.cm = cm; w.staticTriggers = d.triggers.map(t => ({ ...t }));
   w.ents = d.barrels.map(b => ({ classname: 'misc_explobox', origin: b.join(' ') }));
   w.spawns = d.spawns.map(s => ({ ...s, name: '' })); w.name = name; w.demo = true; w.builtin = id;
-  w.blights = d.lights || []; w.sunDef = id === 'test' ? { yaw: 35, elev: 52, c: [1, .93, .8] } : id === 'kappa' ? { yaw: 130, elev: 62, c: [.3, .38, .6] } : null;
+  w.blights = d.lights || []; w.sunDef = id === 'test' ? { yaw: 35, elev: 52, c: [1, .93, .8] } : id === 'kappa' ? { yaw: 130, elev: 62, c: [.3, .38, .6] } : id === 'omega' ? { yaw: 210, elev: 58, c: [.32, .34, .48] } : null;
   return w;
 }
 // ---------- built-in campaign: Outpost Kappa ----------
@@ -817,7 +823,7 @@ function kappaMap() {
       { type: 'msg', mins: [-2304, -320, 0], maxs: [-1792, 320, 288], deb: 0, once: true, text: 'Outpost Kappa: the reactor crew has gone silent. Fight through to the reactor hall and take the exit teleporter.' },
       { type: 'msg', mins: [384, 1056, 0], maxs: [1280, 1184, 160], deb: 0, once: true, text: 'Slime pit — stay on the bridge.' },
       { type: 'hurt', mins: [384, 1184, -160], maxs: [1280, 1696, -64], dmg: 4, every: 250 },
-      { type: 'exit', mins: [768, 3072, 8], maxs: [896, 3168, 80], area: [256, 2240, -1, 1408, 3200, 640], deb: 0 }
+      { type: 'exit', mins: [768, 3072, 8], maxs: [896, 3168, 80], area: [256, 2240, -1, 1408, 3200, 640], deb: 0, next: 'sigma' }
     ],
     monsters: [
       ['monster_soldier_light', -900, -300, 24, 180], ['monster_soldier_light', -540, 400, 24, 200], ['monster_soldier', -480, -520, 24, 160], ['monster_soldier', -1000, 680, 152, 270], ['monster_soldier_ss', -450, 660, 152, 200],
@@ -836,6 +842,171 @@ function kappaMap() {
     spawns: [{ o: [-2128, 0, 24], yaw: 0 }, { o: [-900, 0, 24], yaw: 0 }, { o: [640, 0, 24], yaw: 90 }, { o: [832, 1760, 24], yaw: 270 }, { o: [832, 2400, 24], yaw: 90 }, { o: [-1000, 680, 152], yaw: 270 }]
   };
 }
+// ---------- built-in campaign, units 2 and 3 ----------
+// The same brush kit as Outpost Kappa: rooms are the air inside 32-unit slabs, with openings cut where the holes say.
+function brushKit() {
+  const C = Q, B = [], P = (n, d) => ({ n, d }), lights = [], SOLID = C.CONTENTS_SOLID;
+  const box = (x0, y0, z0, x1, y1, z1, mat, contents) => { if (x1 - x0 < .5 || y1 - y0 < .5 || z1 - z0 < .5) return null; const b = { planes: [P([-1, 0, 0], -x0), P([1, 0, 0], x1), P([0, -1, 0], -y0), P([0, 1, 0], y1), P([0, 0, -1], -z0), P([0, 0, 1], z1)], mat, contents: contents ?? SOLID }; B.push(b); return b; };
+  const wedge = (x0, y0, z0, x1, y1, axis, hStart, hEnd, mat) => { const b = box(x0, y0, z0, x1, y1, Math.max(hStart, hEnd), mat), a0 = axis === 0 ? x0 : y0, a1 = axis === 0 ? x1 : y1, na = -(hEnd - hStart), nz = a1 - a0, l = Math.hypot(na, nz), n = [0, 0, nz / l]; n[axis] = na / l; b.planes.push(P(n, n[axis] * a0 + n[2] * hStart)); };
+  const prism = (cx, cy, r, z0, z1, sides, mat) => { const pl = [P([0, 0, -1], -z0), P([0, 0, 1], z1)]; for (let i = 0; i < sides; i++) { const a = (i + .5) / sides * Math.PI * 2, n = [Math.cos(a), Math.sin(a), 0]; pl.push(P(n, n[0] * cx + n[1] * cy + r)); } B.push({ planes: pl, mat, contents: SOLID }); };
+  const light = (x, y, z, r, col, fix = 'ceil') => { lights.push({ o: [x, y, z], r, c: col }); if (fix === 'ceil') box(x - 20, y - 20, z + 6, x + 20, y + 20, z + 14, 'lamp', 0); else if (fix === 'wall') box(x - 6, y - 6, z - 12, x + 6, y + 6, z + 12, 'lamp', 0); };
+  const room = (x0, y0, x1, y1, z0, z1, m, holes = []) => {
+    box(x0 - 32, y0 - 32, z0 - 32, x1 + 32, y1 + 32, z0, m.floor); if (m.ceil) box(x0 - 32, y0 - 32, z1, x1 + 32, y1 + 32, z1 + 32, m.ceil);
+    const wall = (side, a0, a1, mk) => { const hs = holes.filter(h => h.s === side).sort((p, q) => p.a0 - q.a0); let a = a0; for (const h of hs) { mk(a, h.a0, z0, z1); if (h.z1 < z1) mk(h.a0, h.a1, h.z1, z1); if (h.z0 > z0) mk(h.a0, h.a1, z0, h.z0); a = h.a1; } mk(a, a1, z0, z1); };
+    wall('w', y0 - 32, y1 + 32, (a, b, za, zb) => box(x0 - 32, a, za, x0, b, zb, m.wall));
+    wall('e', y0 - 32, y1 + 32, (a, b, za, zb) => box(x1, a, za, x1 + 32, b, zb, m.wall));
+    wall('s', x0, x1, (a, b, za, zb) => box(a, y0 - 32, za, b, y0, zb, m.wall));
+    wall('n', x0, x1, (a, b, za, zb) => box(a, y1, za, b, y1 + 32, zb, m.wall));
+  };
+  const trim = (x0, y0, x1, y1, z) => { box(x0, y0, z, x0 + 8, y1, z + 12, 'hazard'); box(x1 - 8, y0, z, x1, y1, z + 12, 'hazard'); box(x0 + 8, y0, z, x1 - 8, y0 + 8, z + 12, 'hazard'); box(x0 + 8, y1 - 8, z, x1 - 8, y1, z + 12, 'hazard'); };
+  const stack = (x, y, n, z = 0) => { for (let k = 0; k < n; k++) box(x, y, z + k * 64, x + 64, y + 64, z + k * 64 + 64, 'crate'); };
+  return { C, B, lights, box, wedge, prism, light, room, trim, stack };
+}
+const WARM = [1, .7, .4], LAVAL = [1, .45, .15], W2 = [1, .88, .7], COOL2 = [.7, .85, 1], RED2 = [1, .3, .2], GRN2 = [.45, 1, .5], BLUE2 = [.35, .6, 1], STORM = [.5, .55, .8];
+// Unit 2 — Foundry Sigma: a smelting works. A tram dock, a hall split by a lava canal (walkways along the sides, a catwalk across), the
+// smelter with its crucible and a ramp up to the high deck, flooded cooling tunnels you swim across, and the control room with the exit.
+function sigmaMap() {
+  const K = brushKit(), { C, B, lights, box, wedge, prism, light, room, trim, stack } = K, LAVA = C.CONTENTS_LAVA, WATER = C.CONTENTS_WATER;
+  // A. tram dock
+  room(-2048, -256, -1536, 256, 0, 256, { floor: 'grate', wall: 'rust', ceil: 'metal' }, [{ s: 'e', a0: -96, a1: 96, z0: 0, z1: 128 }]);
+  box(-2048, -256, 0, -1920, 256, 40, 'metal'); box(-2016, -160, 40, -1952, 160, 136, 'tech'); // the tram at its stop
+  stack(-1728, -256, 2); stack(-1664, -256, 1); stack(-1728, 192, 1); trim(-1856, -96, -1600, 96, 0);
+  light(-1792, 0, 240, 420, W2); light(-1984, 0, 200, 260, COOL2, 'none');
+  // corridor
+  room(-1504, -96, -1120, 96, 0, 128, { floor: 'floor', wall: 'rust', ceil: 'metal' }, [{ s: 'w', a0: -96, a1: 96, z0: 0, z1: 128 }, { s: 'e', a0: -96, a1: 96, z0: 0, z1: 128 }]);
+  light(-1312, 0, 112, 260, WARM);
+  // B. lava canal hall
+  room(-1088, -640, 512, 640, -192, 384, { floor: 'stone', wall: 'brick', ceil: 'metal' }, [{ s: 'w', a0: -96, a1: 96, z0: 0, z1: 128 }, { s: 'e', a0: -96, a1: 96, z0: 0, z1: 128 }]);
+  box(-1088, -640, -192, -896, 640, 0, 'stone'); box(320, -640, -192, 512, 640, 0, 'stone'); // landings
+  box(-896, -640, -192, 320, -448, 0, 'grate'); box(-896, 448, -192, 320, 640, 0, 'grate'); // walkways along the walls
+  trim(-896, -456, 320, -448, 0); trim(-896, 448, 320, 456, 0);
+  box(-320, -448, -24, -256, 448, 0, 'grate'); box(-320, -448, 0, -314, 448, 20, 'metal'); box(-262, -448, 0, -256, 448, 20, 'metal'); // the catwalk across
+  box(-896, -448, -192, 320, 448, -112, 'lava', LAVA);
+  for (const x of [-704, -64, 192]) { box(x - 24, -448, -192, x + 24, -424, 384, 'rust'); box(x - 24, 424, -192, x + 24, 448, 384, 'rust'); }
+  stack(-1024, 448, 1); stack(384, -576, 2); stack(448, 512, 1);
+  light(-288, 0, 40, 900, LAVAL, 'none'); light(-704, 0, 360, 520, WARM); light(-64, 0, 360, 520, WARM); light(-992, 0, 360, 380, W2); light(416, 0, 360, 380, W2);
+  light(-500, -544, 200, 360, W2, 'wall'); light(-500, 544, 200, 360, W2, 'wall'); light(100, -544, 200, 360, RED2, 'wall'); light(100, 544, 200, 360, RED2, 'wall');
+  // corridor 2
+  room(544, -96, 928, 96, 0, 128, { floor: 'floor', wall: 'rust', ceil: 'metal' }, [{ s: 'w', a0: -96, a1: 96, z0: 0, z1: 128 }, { s: 'e', a0: -96, a1: 96, z0: 0, z1: 128 }]);
+  light(736, 0, 112, 260, RED2);
+  // C. smelter
+  room(960, -768, 2240, 768, 0, 640, { floor: 'stone', wall: 'brick', ceil: 'metal' }, [{ s: 'w', a0: -96, a1: 96, z0: 0, z1: 128 }, { s: 'n', a0: 1792, a1: 1920, z0: 192, z1: 336 }]);
+  box(1376, -288, 0, 1824, -256, 48, 'rust'); box(1376, 256, 0, 1824, 288, 48, 'rust'); box(1376, -256, 0, 1408, 256, 48, 'rust'); box(1792, -256, 0, 1824, 256, 48, 'rust'); // crucible rim
+  box(1408, -256, 0, 1792, 256, 36, 'lava', LAVA); prism(1600, 0, 56, 36, 640, 8, 'tech'); // and its lava, round the pour column
+  wedge(1024, 448, 0, 1536, 768, 0, 0, 192, 'ramp'); box(1536, 448, 0, 2240, 768, 192, 'stone'); trim(1536, 448, 2240, 456, 192); // ramp to the high deck
+  box(960, -768, 0, 1280, -576, 96, 'metal'); wedge(1280, -768, 0, 1472, -576, 0, 96, 0, 'ramp'); // a south ledge
+  stack(1088, 128, 2); stack(1152, 128, 1); stack(2048, -512, 2); stack(2112, -448, 1); stack(1984, 160, 1);
+  for (const [x, y] of [[1184, -384], [2016, -384], [1184, 288], [2016, 288]]) prism(x, y, 28, 0, 640, 6, 'rust');
+  light(1600, 0, 140, 820, LAVAL, 'none'); light(1216, 0, 620, 600, WARM); light(1984, 0, 620, 600, WARM); light(1888, 608, 360, 460, W2); light(1120, -672, 300, 360, W2, 'wall'); light(2144, -672, 300, 360, RED2, 'wall');
+  // corridor 3 (up on the deck)
+  room(1792, 800, 1920, 1184, 192, 336, { floor: 'floor', wall: 'rust', ceil: 'metal' }, [{ s: 's', a0: 1792, a1: 1920, z0: 192, z1: 336 }, { s: 'n', a0: 1792, a1: 1920, z0: 192, z1: 336 }]);
+  light(1856, 992, 320, 260, COOL2);
+  // D. flooded cooling tunnels
+  room(1408, 1216, 2304, 1856, -64, 416, { floor: 'concrete', wall: 'tile', ceil: 'metal' }, [{ s: 's', a0: 1792, a1: 1920, z0: 192, z1: 336 }, { s: 'n', a0: 1792, a1: 1920, z0: 192, z1: 336 }]);
+  box(1728, 1216, -64, 1984, 1376, 192, 'concrete'); box(1408, 1664, -64, 2304, 1856, 192, 'concrete'); trim(1408, 1664, 2304, 1672, 192);
+  box(1408, 1216, -64, 2304, 1664, 176, 'water', WATER);
+  for (const x of [1536, 2176]) prism(x, 1440, 40, -64, 416, 8, 'pipe');
+  light(1856, 1440, 380, 700, COOL2); light(1856, 1440, 40, 520, [.3, .7, 1], 'none'); light(1600, 1760, 340, 360, W2, 'wall'); light(2112, 1760, 340, 360, W2, 'wall');
+  // corridor 4
+  room(1792, 1888, 1920, 2272, 192, 336, { floor: 'floor', wall: 'rust', ceil: 'metal' }, [{ s: 's', a0: 1792, a1: 1920, z0: 192, z1: 336 }, { s: 'n', a0: 1792, a1: 1920, z0: 192, z1: 336 }]);
+  light(1856, 2080, 320, 260, RED2);
+  // E. control room
+  room(1344, 2304, 2368, 3072, 192, 576, { floor: 'grate', wall: 'tech', ceil: 'metal' }, [{ s: 's', a0: 1792, a1: 1920, z0: 192, z1: 336 }]);
+  box(1344, 2816, 192, 2368, 3072, 256, 'metal'); wedge(1600, 2688, 192, 2112, 2816, 1, 192, 256, 'ramp'); trim(1344, 2816, 2368, 2824, 256);
+  for (const x of [1472, 2240]) { box(x - 64, 2368, 192, x + 64, 2432, 256, 'tech'); box(x - 64, 2368, 256, x + 64, 2400, 320, 'reactor'); }
+  box(1792, 2944, 256, 1920, 3040, 264, 'exitpad'); box(1776, 2928, 256, 1792, 3056, 416, 'hazard'); box(1920, 2928, 256, 1936, 3056, 416, 'hazard'); box(1776, 2928, 416, 1936, 3056, 432, 'hazard');
+  light(1856, 2688, 560, 720, W2); light(1472, 2400, 400, 360, BLUE2, 'none'); light(2240, 2400, 400, 360, BLUE2, 'none'); light(1856, 2992, 400, 320, GRN2, 'none'); light(1440, 2944, 420, 380, RED2, 'wall'); light(2272, 2944, 420, 380, RED2, 'wall');
+  return {
+    brushes: B, lights, ambient: .16,
+    triggers: [
+      { type: 'msg', mins: [-2048, -256, 0], maxs: [-1536, 256, 256], deb: 0, once: true, text: 'Unit 2 — Foundry Sigma. The Strogg smelt their war machines here. Cross the works and shut it down from the control room.' },
+      { type: 'msg', mins: [-1088, -640, 0], maxs: [-896, 640, 160], deb: 0, once: true, text: 'Molten metal below. Take the walkways or the catwalk.' },
+      { type: 'hurt', mins: [-896, -448, -192], maxs: [320, 448, -104], dmg: 30, every: 250 },
+      { type: 'hurt', mins: [1408, -256, 0], maxs: [1792, 256, 44], dmg: 30, every: 250 },
+      { type: 'msg', mins: [1408, 1216, 192], maxs: [2304, 1376, 336], deb: 0, once: true, text: 'Flooded coolant tunnels — swim across.' },
+      { type: 'exit', mins: [1792, 2944, 264], maxs: [1920, 3040, 340], area: [1344, 2304, -1, 2368, 3072, 576], deb: 0, next: 'omega' }
+    ],
+    monsters: [
+      ['monster_soldier', -1700, 120, 24, 180], ['monster_soldier_light', -1250, -40, 24, 180],
+      ['monster_infantry', -980, 520, 24, 0], ['monster_soldier_ss', -400, -560, 24, 180], ['monster_gunner', 0, 560, 24, 180], ['monster_flyer', -500, 0, 140, 180], ['monster_flyer', 100, -100, 160, 180], ['monster_parasite', 400, 300, 24, 180],
+      ['monster_mutant', 1200, -200, 24, 180], ['monster_mutant', 1300, 400, 24, 200], ['monster_gunner', 1120, -672, 120, 90], ['monster_berserk', 2000, -200, 24, 180], ['monster_medic', 2100, 600, 216, 270], ['monster_soldier_ss', 1700, 600, 216, 270], ['monster_chick', 1950, 0, 24, 180],
+      ['monster_flipper', 1650, 1450, 60, 0], ['monster_flipper', 2050, 1500, 60, 180], ['monster_gunner', 1700, 1760, 216, 270], ['monster_infantry', 2000, 1760, 216, 270],
+      ['monster_gladiator', 1600, 2600, 216, 270], ['monster_gladiator', 2100, 2600, 216, 270], ['monster_medic', 1856, 2880, 280, 270], ['monster_soldier_ss', 1450, 2950, 280, 270], ['monster_soldier_ss', 2250, 2950, 280, 270]
+    ],
+    items: [
+      ['ammo_shells', -1800, 200, 16], ['item_armor_shard', -1700, -200, 16], ['item_health', -1250, 60, 16],
+      ['weapon_supershotgun', -1000, -560, 16], ['ammo_shells', -1000, 560, 16], ['item_armor_jacket', -288, 0, 16], ['ammo_bullets', 400, 560, 16], ['item_health', 400, -560, 16], ['weapon_chaingun', -800, 540, 16],
+      ['item_health_large', 1100, -672, 112], ['ammo_grenades', 1200, -672, 112], ['weapon_hyperblaster', 2150, 600, 208], ['ammo_cells', 2050, 680, 208], ['item_health_large', 1100, 600, 16], ['ammo_rockets', 2150, -650, 16], ['item_adrenaline', 1600, 0, 690],
+      ['item_breather', 1856, 1300, 208], ['item_health_mega', 1856, 1440, 0], ['ammo_cells', 1600, 1760, 208], ['item_armor_combat', 2100, 1760, 208],
+      ['item_quad', 1856, 2500, 208], ['ammo_rockets', 1450, 2700, 208], ['ammo_cells', 2250, 2700, 208], ['item_health_large', 1856, 2400, 208]
+    ],
+    barrels: [[-1900, 200, 0], [-1600, -200, 0], [-1040, 560, 0], [440, -440, 0], [1250, 650, 0], [1300, -650, 0], [2150, -100, 0], [1450, 2450, 192], [2260, 2450, 192]],
+    spawns: [{ o: [-1792, 0, 24], yaw: 0 }, { o: [-1312, 0, 24], yaw: 0 }, { o: [416, 0, 24], yaw: 0 }, { o: [1856, 600, 216], yaw: 90 }, { o: [1856, 1760, 216], yaw: 90 }, { o: [1856, 2400, 216], yaw: 90 }]
+  };
+}
+// Unit 3 — Citadel Omega: the Strogg stronghold under a storm. A drop zone, the gate road, a towered courtyard with jump pads up to the
+// battlements, the inner hall and its stairs to the sanctum bridge, and the arena where a Supertank waits. Clearing it ends the campaign.
+function omegaMap() {
+  const K = brushKit(), { C, B, lights, box, wedge, prism, light, room, trim, stack } = K;
+  // A. drop zone
+  room(-2304, -384, -1664, 384, 0, 448, { floor: 'concrete', wall: 'stone', ceil: 'storm' }, [{ s: 'e', a0: -128, a1: 128, z0: 0, z1: 192 }]);
+  box(-2304, -384, 0, -2176, 384, 96, 'stone'); box(-2240, -96, 96, -2176, 96, 224, 'tech'); stack(-1856, -384, 2); stack(-1792, 320, 1); trim(-2048, -128, -1792, 128, 0);
+  light(-1984, 0, 300, 600, STORM, 'none'); light(-2160, 0, 200, 300, RED2, 'wall');
+  // gate road
+  room(-1632, -128, -1088, 128, 0, 256, { floor: 'stone', wall: 'stone', ceil: 'storm' }, [{ s: 'w', a0: -128, a1: 128, z0: 0, z1: 192 }, { s: 'e', a0: -128, a1: 128, z0: 0, z1: 192 }]);
+  for (const x of [-1504, -1216]) { box(x - 24, -128, 0, x + 24, -104, 256, 'tower'); box(x - 24, 104, 0, x + 24, 128, 256, 'tower'); light(x, -96, 180, 300, RED2, 'wall'); }
+  // B. outer courtyard
+  room(-1056, -1024, 512, 1024, 0, 768, { floor: 'concrete', wall: 'stone', ceil: 'storm' }, [{ s: 'w', a0: -128, a1: 128, z0: 0, z1: 192 }, { s: 'e', a0: -128, a1: 128, z0: 0, z1: 192 }]);
+  box(-1056, 832, 0, 512, 1024, 192, 'stone'); box(-1056, -1024, 0, 512, -832, 192, 'stone'); // battlements
+  box(-1056, 824, 192, 512, 832, 224, 'metal'); box(-1056, -832, 192, 512, -824, 224, 'metal');
+  for (const [x, y] of [[-832, -608], [288, -608], [-832, 608], [288, 608]]) { prism(x, y, 72, 0, 640, 8, 'tower'); light(x + 96, y, 420, 420, x < 0 ? STORM : RED2, 'wall'); }
+  prism(-272, 0, 96, 0, 48, 8, 'stone'); prism(-272, 0, 40, 48, 320, 6, 'tech'); // the monument
+  box(-304, -720, 0, -240, -656, 8, 'pad'); box(-304, 656, 0, -240, 720, 8, 'pad'); // jump pads to the battlements
+  stack(-640, 200, 2); stack(-576, 200, 1); stack(64, -300, 2); stack(128, -300, 1); stack(-900, -100, 1); stack(400, 300, 1);
+  light(-272, 0, 700, 1100, STORM, 'none'); light(-272, 0, 360, 420, BLUE2, 'none'); light(-272, -900, 330, 460, W2, 'none'); light(-272, 900, 330, 460, W2, 'none');
+  // C. inner hall
+  room(544, -256, 1472, 256, 0, 384, { floor: 'grate', wall: 'tech', ceil: 'metal' }, [{ s: 'w', a0: -128, a1: 128, z0: 0, z1: 192 }, { s: 'e', a0: -96, a1: 96, z0: 256, z1: 400 }]);
+  for (const x of [704, 960, 1216]) { box(x - 24, -256, 0, x + 24, -208, 384, 'pipe'); box(x - 24, 208, 0, x + 24, 256, 384, 'pipe'); }
+  wedge(1024, -256, 0, 1280, 256, 0, 0, 256, 'ramp'); box(1280, -256, 0, 1472, 256, 256, 'metal'); trim(1280, -256, 1472, 256, 256); // the sanctum stairs
+  light(704, 0, 368, 380, RED2); light(960, 0, 368, 380, W2); light(1376, 0, 368, 380, BLUE2);
+  // bridge
+  room(1504, -96, 1888, 96, 256, 400, { floor: 'grate', wall: 'tech', ceil: 'metal' }, [{ s: 'w', a0: -96, a1: 96, z0: 256, z1: 400 }, { s: 'e', a0: -96, a1: 96, z0: 256, z1: 400 }]);
+  light(1696, 0, 384, 280, RED2);
+  // D. arena
+  room(1920, -896, 3328, 896, 0, 1024, { floor: 'stone', wall: 'stone', ceil: 'storm' }, [{ s: 'w', a0: -96, a1: 96, z0: 256, z1: 400 }]);
+  box(1920, -160, 0, 2112, 160, 256, 'stone'); wedge(2112, -160, 0, 2368, 160, 0, 256, 0, 'ramp'); trim(1920, -160, 2112, 160, 256); // entry ledge and stairs
+  for (const [x, y] of [[2304, -576], [2944, -576], [2304, 576], [2944, 576]]) { prism(x, y, 80, 0, 768, 8, 'tower'); light(x, y + (y < 0 ? 104 : -104), 520, 520, RED2, 'wall'); }
+  box(2496, -384, 0, 2560, -320, 96, 'crate'); box(2688, 320, 0, 2752, 384, 96, 'crate'); box(2240, 128, 0, 2304, 256, 64, 'stone'); box(2944, -256, 0, 3008, -128, 64, 'stone');
+  prism(3136, 0, 160, 0, 64, 8, 'stone'); box(3072, -48, 64, 3200, 48, 72, 'exitpad'); // the dais with the way out
+  wedge(2848, -64, 0, 3000, 64, 0, 0, 64, 'ramp'); trim(2848, -72, 3000, -64, 0); trim(2848, 64, 3000, 72, 0);
+  box(3072, -64, 64, 3200, -48, 224, 'hazard'); box(3072, 48, 64, 3200, 64, 224, 'hazard'); box(3072, -64, 224, 3200, 64, 240, 'hazard');
+  light(2624, 0, 980, 1500, STORM, 'none'); light(3136, 0, 200, 420, GRN2, 'none'); light(2624, -820, 400, 520, W2, 'wall'); light(2624, 820, 400, 520, W2, 'wall');
+  return {
+    brushes: B, lights, ambient: .14,
+    triggers: [
+      { type: 'msg', mins: [-2304, -384, 0], maxs: [-1664, 384, 448], deb: 0, once: true, text: 'Unit 3 — Citadel Omega. The Strogg command holds out here. Break through the courtyard and the inner hall — something big waits in the arena.' },
+      { type: 'push', mins: [-304, -720, 0], maxs: [-240, -656, 40], vel: [0, -330, 760] },
+      { type: 'push', mins: [-304, 656, 0], maxs: [-240, 720, 40], vel: [0, 330, 760] },
+      { type: 'msg', mins: [1920, -160, 256], maxs: [2112, 160, 400], deb: 0, once: true, text: 'The arena. Destroy the Supertank and everything with it.' },
+      { type: 'exit', mins: [3072, -48, 72], maxs: [3200, 48, 150], area: [1920, -896, -1, 3328, 896, 1024], deb: 0, final: true }
+    ],
+    monsters: [
+      ['monster_soldier_ss', -1850, 250, 24, 180], ['monster_soldier', -1350, 60, 24, 180],
+      ['monster_berserk', -700, -300, 24, 180], ['monster_gunner', -500, 940, 216, 270], ['monster_gunner', 0, -940, 216, 90], ['monster_chick', 100, 400, 24, 180], ['monster_hover', -300, -500, 300, 180], ['monster_hover', 0, 500, 320, 180], ['monster_brain', 350, 0, 24, 180], ['monster_soldier_ss', -900, 940, 216, 270],
+      ['monster_tank', 900, 0, 24, 180], ['monster_infantry', 700, -150, 24, 180], ['monster_infantry', 700, 150, 24, 180], ['monster_medic', 1380, 0, 280, 180],
+      ['monster_supertank', 2700, 0, 24, 180], ['monster_floater', 2500, -500, 300, 180], ['monster_floater', 2500, 500, 300, 180], ['monster_chick', 2950, -350, 24, 180], ['monster_gladiator', 2950, 350, 24, 180], ['monster_soldier_ss', 3100, -600, 24, 180], ['monster_soldier_ss', 3100, 600, 24, 180]
+    ],
+    items: [
+      ['ammo_shells', -2000, 250, 16], ['ammo_bullets', -2000, -250, 16], ['item_health', -1400, 0, 16],
+      ['item_armor_combat', -272, -940, 208], ['weapon_rocketlauncher', -272, 940, 208], ['ammo_rockets', -100, 940, 208], ['item_health_large', -700, 0, 16], ['ammo_cells', 200, 0, 16], ['ammo_grenades', -600, 600, 16], ['item_health', 300, -800, 16],
+      ['weapon_railgun', 1376, 0, 272], ['ammo_slugs', 1300, 150, 272], ['item_health_large', 600, 200, 16], ['ammo_rockets', 600, -200, 16],
+      ['item_health_mega', 2016, 0, 272], ['item_invulnerability', 2400, 0, 16], ['ammo_slugs', 2300, -400, 16], ['ammo_rockets', 2300, 400, 16], ['item_armor_body', 3000, 0, 16], ['ammo_cells', 2800, -700, 16], ['item_health_large', 2800, 700, 16], ['weapon_bfg', 2624, 820, 16]
+    ],
+    barrels: [[-1900, -300, 0], [-1000, -700, 0], [-1000, 700, 0], [450, -950, 192], [450, 950, 192], [1400, -200, 0], [2400, -800, 0], [2400, 800, 0], [3200, -800, 0], [3200, 800, 0]],
+    spawns: [{ o: [-1984, 0, 24], yaw: 0 }, { o: [-1360, 0, 24], yaw: 0 }, { o: [-800, 0, 24], yaw: 0 }, { o: [700, 0, 24], yaw: 0 }, { o: [1376, 0, 280], yaw: 0 }, { o: [2016, 0, 280], yaw: 0 }]
+  };
+}
+const UNITS = ['kappa', 'sigma', 'omega']; // the built-in campaign, in order
 // Baked light for brush maps: every face gets a lightmap (one luxel per 32 units), lit by the map's lamps with traced shadows.
 function bakeBrushLight(d, cm, faces) {
   const L = 32, prevCM = Q.getCM(); Q.setCM(cm); const lit = d.lights || [], amb = d.ambient ?? .15;
@@ -879,9 +1050,12 @@ function bakeBrushLight(d, cm, faces) {
 // built-in maps: the test map and the campaign level. ents() lists the entities for a fresh start.
 const BUILTIN_MAPS = {
   test: { name: 'Test map', data: () => Q.demoMap(), ents: () => demoEnts(), campaign: false },
-  kappa: { name: 'Outpost Kappa', data: () => kappaMap(), campaign: true, ents() { const d = kappaMap(); return [...d.barrels.map(b => ({ classname: 'misc_explobox', origin: b.join(' ') })), ...d.monsters.map(([c, x, y, z, a]) => ({ classname: c, origin: `${x} ${y} ${z}`, angle: String(a) })), ...d.items.map(([c, x, y, z]) => ({ classname: c, origin: `${x} ${y} ${z}` }))]; } }
+  sigma: { name: 'Foundry Sigma', unit: 2, data: () => sigmaMap(), campaign: true, ents() { return brushEnts(sigmaMap()); } },
+  omega: { name: 'Citadel Omega', unit: 3, data: () => omegaMap(), campaign: true, ents() { return brushEnts(omegaMap()); } },
+  kappa: { name: 'Outpost Kappa', unit: 1, data: () => kappaMap(), campaign: true, ents() { const d = kappaMap(); return [...d.barrels.map(b => ({ classname: 'misc_explobox', origin: b.join(' ') })), ...d.monsters.map(([c, x, y, z, a]) => ({ classname: c, origin: `${x} ${y} ${z}`, angle: String(a) })), ...d.items.map(([c, x, y, z]) => ({ classname: c, origin: `${x} ${y} ${z}` }))]; } }
 };
-const builtinCache = {};
+const brushEnts = d => [...d.barrels.map(b => ({ classname: 'misc_explobox', origin: b.join(' ') })), ...d.monsters.map(([c, x, y, z, a]) => ({ classname: c, origin: `${x} ${y} ${z}`, angle: String(a) })), ...d.items.map(([c, x, y, z]) => ({ classname: c, origin: `${x} ${y} ${z}` }))];
+const builtinCache = {}, builtinData = {};
 function builtinWorld(id) {
   const B = BUILTIN_MAPS[id] || BUILTIN_MAPS.test; id = BUILTIN_MAPS[id] ? id : 'test';
   if (id === 'test') { if (!demoCache) demoCache = buildDemoWorld(); builtinCache.test = demoCache; }
@@ -892,14 +1066,20 @@ function startBuiltin(id, campaign) { // play a built-in map from the start
   if (!gl) return; if (NET.on && !NET.starting) netStop(); const w = builtinWorld(id); resetPlayer(); campaignMode = !!campaign; resetInventory(!campaign); setWorld(w); loaded = true; lastMapPath = null; startGame();
 }
 let exitT = 0;
+function nextUnit(id) { // the next built-in unit: weapons, ammo, health and armour come with you (a co-op squad too)
+  if (!gl || !BUILTIN_MAPS[id]) return; if (NET.on && NET.coop && NET.master) netOut({ k: 'map', map: id, spot: '' });
+  BOT.carryNext = true; const w = builtinWorld(id); try { setWorld(w); } finally { BOT.carryNext = false; } campaignMode = true; loaded = true; lastMapPath = null; PL.kills = 0; if (!running) startGame();
+  saveRunUnit(id);
+}
 function levelExit(t) { // the exit teleporter of a built-in campaign level
   if (simTime < (t.deb || 0)) return; t.deb = simTime + 1500;
   const a = t.area, left = a ? E.monsters.filter(m => !m.bot && !m.dead && !m.hidden && !m.gibbed && m.o[0] > a[0] && m.o[1] > a[1] && m.o[0] < a[3] && m.o[1] < a[4]).length : 0;
   if (left) { toast(`The exit is sealed — ${left} hostile${left > 1 ? 's' : ''} still in the reactor hall.`, 2500); play('noammo', .6); return; }
   if (exitT) return; exitT = simTime; play('tele', .9); addLight(ps.origin.map(v => v / 8), 400, [.4, 1, .6], .8);
   const secs = Math.round(simTime / 1000), msg = `${world.name} complete — kills ${PL.kills}/${PL.total} · time ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
-  toast(msg, 6000); setStatus(msg);
-  later(2500, () => { exitT = 0; if (!running) return; pauseGame(); showScreen('sp'); });
+  const next = campaignMode && t.next && BUILTIN_MAPS[t.next];
+  toast(next ? msg + `  ·  on to Unit ${next.unit}: ${next.name}` : t.final && campaignMode ? msg + '  ·  CAMPAIGN COMPLETE — the Strogg command is broken.' : msg, 6000); setStatus(msg);
+  later(2500, () => { exitT = 0; if (next) { nextUnit(t.next); return; } if (!running) return; pauseGame(); showScreen('sp'); });
 }
 // ---------- textures from paks ----------
 async function loadTexture(name) {
@@ -5697,6 +5877,10 @@ const setStatus = (t, err) => { const s = $('status'); s.textContent = t; s.clas
 function demoEnts() { const d = Q.demoMap(); return [...d.barrels.map(b => ({ classname: 'misc_explobox', origin: b.join(' ') })), ...(S.testEnemies ? d.monsters.map(([c, x, y, z, a]) => ({ classname: c, origin: `${x} ${y} ${z}`, angle: String(a) })) : []), ...d.items.map(([c, x, y, z]) => ({ classname: c, origin: `${x} ${y} ${z}` }))]; }
 $('playDemo').onclick = () => startBuiltin('test', false);
 $('playKappa').onclick = () => startBuiltin('kappa', true);
+for (const id of ['sigma', 'omega']) { const b = $('play_' + id); if (b) b.onclick = () => startBuiltin(id, true); }
+function saveRunUnit(id) { try { const u = Math.max(UNITS.indexOf(id), +(localStorage.getItem('cq.unit') || 0)); localStorage.setItem('cq.unit', String(u)); } catch (e) {} showUnitButtons(); }
+function showUnitButtons() { let u = 0; try { u = +(localStorage.getItem('cq.unit') || 0); } catch (e) {} for (const [i, id] of [[1, 'sigma'], [2, 'omega']]) { const b = $('play_' + id); if (b) { b.disabled = u < i; b.title = u < i ? 'Reach this unit in the campaign to unlock it' : ''; } } }
+showUnitButtons();
 function resetPlayer() { PL.dead = false; PL.health = 100; PL.maxHealth = 100; PL.armor = 0; PL.armorFrac = 0; PL.quad = PL.invul = 0; $('dead').hidden = true; }
 $('resume').onclick = () => startGame();
 $('botBtn').onclick = () => { if ((S.netMode || 'off') !== 'off') { netHostOnline(); return; } if (NET.on) netStop(); startBotMatch(+$('botCount').value, $('mpMap').value, $('matchMode').value, { frag: +$('mpFrag').value, time: +$('mpTime').value }); };
@@ -6293,7 +6477,41 @@ function showScreen(n) { curScr = n; if (n === 'mp') fillBotSlots(); document.qu
 document.querySelectorAll('#menu [data-go]').forEach(b => { b.onclick = () => showScreen(b.dataset.go); });
 $('backBtn').onclick = () => showScreen(SCR_PARENT[curScr] || 'main'); showScreen('main');
 $('campaign').onclick = () => loadMap('maps/base1.bsp'); $('campaignX').onclick = () => loadMap('maps/xswamp.bsp'); $('campaignR').onclick = () => loadMap('maps/rmine1.bsp');
-async function addFiles(list) {
+// Remembered archives: .pak / .pk3 / .zip / .pkz go into IndexedDB and mount again on the next visit
+const PAKDB = {
+  open() { return this.p || (this.p = new Promise((ok, no) => { try { const r = indexedDB.open('crossover-paks', 1); r.onupgradeneeded = () => r.result.createObjectStore('files'); r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); } catch (e) { no(e); } }).catch(e => { this.p = null; throw e; })); },
+  async tx(mode, fn) { const db = await this.open(); return new Promise((ok, no) => { const t = db.transaction('files', mode), st = t.objectStore('files'); let out; const r = fn(st); if (r) r.onsuccess = () => { out = r.result; }; t.oncomplete = () => ok(out); t.onerror = t.onabort = () => no(t.error); }); },
+  key: f => (f.webkitRelativePath || f.name).toLowerCase() + '|' + f.size,
+  put(f) { return this.tx('readwrite', st => st.put({ name: f.name, path: f.webkitRelativePath || '', size: f.size, at: Date.now(), blob: f }, this.key(f))); },
+  all() { return this.tx('readonly', st => st.getAll()); },
+  clear() { return this.tx('readwrite', st => st.clear()); },
+};
+const isArchive = n => /\.(pak|zip|pk3|pkz)$/i.test(n);
+const mb = b => (b / 1048576).toFixed(b < 10485760 ? 1 : 0) + ' MB';
+async function rememberFiles(files) {
+  if (S.rememberPaks === false) return;
+  const arc = files.filter(f => isArchive(f.name)); if (!arc.length) return;
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) {}
+  let kept = 0;
+  for (const f of arc) { try { await PAKDB.put(f); kept++; } catch (e) { console.warn('remember', f.name, e); setStatus(`Couldn't remember ${f.name}: ${e && e.name === 'QuotaExceededError' ? 'browser storage is full' : 'browser storage unavailable'}. It still works for this visit.`, true); break; } }
+  showRemembered();
+}
+async function showRemembered() {
+  const el = $('remembered'); if (!el) return;
+  let rows = []; try { rows = await PAKDB.all(); } catch (e) { el.hidden = true; return; }
+  el.hidden = !rows.length; if (!rows.length) return;
+  const tot = rows.reduce((a, r) => a + (r.size || 0), 0);
+  $('rememberedTxt').textContent = `Remembered: ${rows.map(r => r.name).sort().join(', ')} (${mb(tot)})`;
+}
+async function restoreFiles() {
+  if (S.rememberPaks === false) { showRemembered(); return; }
+  let rows = []; try { rows = await PAKDB.all(); } catch (e) { return; }
+  if (!rows.length) return;
+  const files = rows.filter(r => r.blob).map(r => { const f = r.blob instanceof File ? r.blob : new File([r.blob], r.name); if (r.path && !f.webkitRelativePath) try { Object.defineProperty(f, 'webkitRelativePath', { value: r.path }); } catch (e) {} return f; });
+  setStatus(`Mounting ${files.length} remembered file${files.length === 1 ? '' : 's'}…`);
+  await addFiles(files, true); showRemembered();
+}
+async function addFiles(list, restoring) {
   const files = [...list].filter(f => /\.(pak|zip|pk3|pkz|bsp|wal|pcx|tga|wav|png|jpg|md2|md3|skin|shader|cfg|ogg|mp3|flac)$/i.test(f.name));
   if (!files.length) { setStatus('No usable files there — I need .pak, .zip/.pk3 or .bsp files.', true); return; }
   resetLgTex(); shellReset();
@@ -6314,6 +6532,7 @@ async function addFiles(list) {
   await listMaps();
   refreshCharacter();
   const maps = [...VFS.keys()].filter(k => /^maps\/.*\.bsp$/.test(k)).length, chars = listPlayerModels().length, c3 = listQ3Models().length;
+  if (!restoring) rememberFiles(files);
   setStatus(`${VFS.size} files mounted · ${maps} map${maps === 1 ? '' : 's'} · ${chars} Quake II and ${c3} Quake III player model${c3 === 1 ? '' : 's'}. Pick a map.`);
 }
 const mapInfoCache = new Map();
@@ -6336,7 +6555,7 @@ function fillMpMap() { // Deathmatch picks any arena; Co-op picks a single-playe
   const sel = $('mpMap'), coop = $('matchMode').value === 'coop', keep = sel.value; $('mapLbl').textContent = coop ? 'Unit' : 'Map'; $('fragRow').classList.toggle('off', coop);
   sel.innerHTML = ''; const add = (v, t, g) => { const o = document.createElement('option'); o.value = v; o.textContent = t; (g || sel).appendChild(o); };
   const grp = (label, list) => { if (!list || !list.length) return; const g = document.createElement('optgroup'); g.label = label; for (const [m, i] of list) add(m, `${m.slice(5, -4)} — ${i.title}`, g); sel.appendChild(g); };
-  add('test', 'Test map'); add('kappa', coop ? 'Outpost Kappa (built-in campaign)' : 'Outpost Kappa (built-in)');
+  add('test', 'Test map'); for (const id of UNITS) add(id, `Unit ${BUILTIN_MAPS[id].unit}: ${BUILTIN_MAPS[id].name} (built-in${coop ? ' campaign' : ''})`);
   if (MAPCAT) { if (coop) grp('Single-player units', MAPCAT.sp); else { grp('Quake II deathmatch', MAPCAT.dm); grp('Quake III arenas', MAPCAT.q3); grp('Other maps', MAPCAT.other); grp('Single-player maps', MAPCAT.sp); } }
   sel.value = [...sel.options].some(o => o.value === keep) ? keep : (sel.options.length > 1 ? sel.options[1].value : 'test');
 }
@@ -6378,6 +6597,9 @@ const w_name = p => p.replace(/^maps\//, '').replace(/\.bsp$/, '');
 $('files').onchange = e => { addFiles(e.target.files); e.target.value = ''; };
 $('folder').onchange = e => { addFiles(e.target.files); e.target.value = ''; };
 $('mapFilter').oninput = () => listMaps();
+{ const rp = $('rememberPaks'); if (rp) { rp.checked = S.rememberPaks !== false; rp.onchange = () => { S.rememberPaks = rp.checked; saveS(); if (!rp.checked) PAKDB.clear().then(showRemembered, () => {}); } }
+  const fg = $('forgetPaks'); if (fg) fg.onclick = () => PAKDB.clear().then(() => { showRemembered(); setStatus('Forgot the saved files. They stay mounted until you reload the page.'); }, e => setStatus('Could not clear browser storage: ' + e.message, true)); }
+setTimeout(() => { restoreFiles().catch(e => console.warn('restore', e)); }, 0);
 addEventListener('dragover', e => { e.preventDefault(); document.body.classList.add('drag'); });
 addEventListener('dragleave', e => { if (e.target === document.body || !e.relatedTarget) document.body.classList.remove('drag'); });
 addEventListener('drop', e => { e.preventDefault(); document.body.classList.remove('drag'); if (running) pauseGame(); addFiles(e.dataTransfer.files); });

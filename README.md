@@ -8,6 +8,10 @@ Features: Q2 and Q3 physics/weapons/sounds/items, ragdolls, monsters, bots with 
 
 Quake III shaders: every `.shader` keyword is parsed. Maps draw each shader as its real list of stages (`map`, `clampmap`, `animmap`, `$lightmap`, `$whiteimage`), with `tcMod` (scroll, scale, rotate, stretch, transform, turb), `tcGen` (base, lightmap, environment, vector), `rgbGen`, `alphaGen`, `blendFunc`, `alphaFunc`, `depthFunc`, `depthWrite`, `cull` (parsed), `sort`, `polygonOffset`, `deformVertexes` (wave, normal, bulge, move, autosprite, autosprite2), cloud-layer skies and `fogparms` volumes. Model shaders draw all their stages too. Not supported: portals and mirrors, `videoMap`, `deformVertexes text`, `projectionShadow`, fog on surfaces seen from outside a volume.
 
+Built-in campaign (no paks needed): **Unit 1: Outpost Kappa** → **Unit 2: Foundry Sigma** (lava foundry, flooded pumping hall, crane yard) → **Unit 3: Citadel Omega** (storm courtyard, jump pads to the battlements, the command arena). Each exit carries your weapons, health and co-op squad on to the next unit; reached units unlock on the main menu. All three are in the co-op unit list.
+
+Remembered files: `.pak`, `.pk3`, `.zip` and `.pkz` files you load are kept in this browser (IndexedDB) and mount again on the next visit. Loose files (`.bsp`, textures, music) are not kept. Untick *Remember my .pak / .pk3 / .zip files* or press *Forget* to clear them.
+
 Press **U** (or type `unstuck`) to get out of geometry or step back along your path.
 
 ## Online multiplayer

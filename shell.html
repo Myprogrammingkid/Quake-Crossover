@@ -259,7 +259,8 @@ body.touch #info{left:112px}
         <input type="file" id="files" multiple hidden>
         <input type="file" id="folder" webkitdirectory multiple hidden>
       </div>
-      <div id="status">Drop Quake II's <b>pak0.pak</b> (<code>baseq2</code>) and/or Quake III's <b>pak0.pk3</b> (<code>baseq3</code>) anywhere on this page, plus any custom map zips or pk3s. Files are read locally and never leave your browser.</div>
+      <div class="row" id="rememberRow" style="gap:.6em;flex-wrap:wrap;align-items:center;font-size:.85em;opacity:.85"><label><input type="checkbox" id="rememberPaks" checked> Remember my .pak / .pk3 / .zip files</label><span id="remembered" hidden><span id="rememberedTxt"></span> <button id="forgetPaks" type="button">Forget</button></span></div>
+      <div id="status">Drop Quake II's <b>pak0.pak</b> (<code>baseq2</code>) and/or Quake III's <b>pak0.pk3</b> (<code>baseq3</code>) anywhere on this page, plus any custom map zips or pk3s. Files are read locally and never leave your browser; archives are remembered in this browser for next time.</div>
     </div>
     <div class="crumb"><button class="back" id="backBtn" hidden>‹ Back</button><span id="crumb">MAIN MENU</span></div>
 
@@ -289,7 +290,9 @@ body.touch #info{left:112px}
           <button id="campaign" class="primary" hidden>▶ Start campaign</button>
           <button id="campaignX" class="primary" hidden>▶ The Reckoning</button>
           <button id="campaignR" class="primary" hidden>▶ Ground Zero</button>
-          <button id="playKappa" class="primary">▶ Built-in campaign: Outpost Kappa</button>
+          <button id="playKappa" class="primary">▶ Built-in campaign — Unit 1: Outpost Kappa</button>
+          <button id="play_sigma">Unit 2: Foundry Sigma</button>
+          <button id="play_omega">Unit 3: Citadel Omega</button>
           <button id="playDemo" class="">▶ Play test map</button>
         </div>
       </div>
